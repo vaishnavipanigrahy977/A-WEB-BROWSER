@@ -2,6 +2,7 @@
 
 from http import cookies
 from http import HTTPStatus
+import os
 from pathlib import Path
 from urllib.parse import parse_qs, unquote
 from wsgiref.simple_server import make_server
@@ -146,6 +147,12 @@ def application(environ, start_response):
     return respond(start_response, status, body)
 
 
+def serve():
+    host = "0.0.0.0"
+    port = int(os.environ.get("PORT", "8000"))
+    print(f"Wellnote is running at http://127.0.0.1:{port}")
+    make_server(host, port, application).serve_forever()
+
+
 if __name__ == "__main__":
-    print("Wellnote is running at http://127.0.0.1:8000")
-    make_server("127.0.0.1", 8000, application).serve_forever()
+    serve()

@@ -21,6 +21,10 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000). Run the tests with:
 python -m unittest
 ```
 
+For hosting platforms, Wellnote binds to `0.0.0.0` and reads the listening
+port from the `PORT` environment variable. If `PORT` is unset, it uses `8000`,
+so the local command above remains unchanged.
+
 ## Configure generative study-buddy answers
 
 The app does not bundle an AI model or API key. Without provider credentials,

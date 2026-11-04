@@ -6,6 +6,7 @@ from urllib.error import HTTPError
 from unittest.mock import patch
 from urllib.parse import quote_plus
 
+import app as wellnote_app
 from app import COOKIE_NAME, application
 from medlineplus import search_medlineplus
 from study import EXAM_GUIDES, QUESTIONS, ai_provider_configured, generate_ai_response, make_response, next_question_id
@@ -28,6 +29,19 @@ def request(path="/", method="GET", query="", cookie="", form=""):
 
 
 class MedicalAppTests(unittest.TestCase):
+    def test_server_uses_default_and_environment_port(self):
+        server = unittest.mock.Mock()
+        with patch.dict(os.environ, {}, clear=True), patch("app.make_server", return_value=server) as make_server:
+            wellnote_app.serve()
+        make_server.assert_called_once_with("0.0.0.0", 8000, application)
+        server.serve_forever.assert_called_once_with()
+
+        server.reset_mock()
+        with patch.dict(os.environ, {"PORT": "4321"}), patch("app.make_server", return_value=server) as make_server:
+            wellnote_app.serve()
+        make_server.assert_called_once_with("0.0.0.0", 4321, application)
+        server.serve_forever.assert_called_once_with()
+
     def test_home_and_search(self):
         self.assertIn("Asthma", request()["body"])
         self.assertIn("not medical advice", request()["body"])
