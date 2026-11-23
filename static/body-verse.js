@@ -151,7 +151,8 @@ function fitModel(model) {
   const size = bounds.getSize(new THREE.Vector3());
   const center = bounds.getCenter(new THREE.Vector3());
   const longestSide = Math.max(size.x, size.y, size.z);
-  const scale = 2.8 / (longestSide || 1);
+  const targetHeight = model.name === "Whole body" ? 2.35 : 2.8;
+  const scale = targetHeight / (longestSide || 1);
   model.scale.setScalar(scale);
   model.position.copy(center).multiplyScalar(-scale);
   model.updateMatrixWorld(true);
@@ -160,6 +161,93 @@ function fitModel(model) {
   controls.minDistance = 0.35;
   controls.maxDistance = 10;
   controls.update();
+}
+
+function createWholeBody() {
+  const group = new THREE.Group();
+  group.name = "Whole body";
+
+  const shellMaterial = new THREE.MeshPhysicalMaterial({
+    color: "#c9a58f",
+    roughness: 0.72,
+    metalness: 0,
+    transparent: true,
+    opacity: 0.12,
+    side: THREE.DoubleSide,
+  });
+  const shell = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.62, 1.55, 12, 24),
+    shellMaterial,
+  );
+  shell.position.y = -0.15;
+  shell.name = "Transparent body outline";
+  group.add(shell);
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(0.35, 32, 20),
+    shellMaterial,
+  );
+  head.position.y = 1.45;
+  head.name = "Head outline";
+  group.add(head);
+
+  const organSpecs = [
+    ["Brain", "#b58ad7", new THREE.SphereGeometry(0.29, 32, 20), [0, 1.48, 0]],
+    ["Heart", "#df4f63", new THREE.SphereGeometry(0.22, 32, 20), [-0.12, 0.48, 0.30]],
+    ["Right lung", "#67aeb2", new THREE.SphereGeometry(0.25, 32, 20), [-0.38, 0.55, 0.14]],
+    ["Left lung", "#67aeb2", new THREE.SphereGeometry(0.25, 32, 20), [0.38, 0.55, 0.14]],
+    ["Liver", "#a87350", new THREE.SphereGeometry(0.34, 32, 18), [-0.32, 0.05, 0.18]],
+    ["Stomach", "#dda167", new THREE.SphereGeometry(0.22, 32, 18), [0.28, 0.02, 0.20]],
+    ["Spleen", "#9d5f78", new THREE.SphereGeometry(0.16, 32, 16), [0.48, 0.12, 0.10]],
+    ["Pancreas", "#d6bd67", new THREE.CapsuleGeometry(0.10, 0.42, 8, 16), [0.05, -0.12, 0.28]],
+    ["Right kidney", "#7e6ac1", new THREE.SphereGeometry(0.16, 32, 18), [-0.42, -0.32, 0]],
+    ["Left kidney", "#7e6ac1", new THREE.SphereGeometry(0.16, 32, 18), [0.42, -0.32, 0]],
+    ["Small intestine", "#edaa73", new THREE.TorusKnotGeometry(0.20, 0.055, 72, 8, 2, 3), [0, -0.58, 0.22]],
+    ["Large intestine", "#d78a62", new THREE.TorusGeometry(0.36, 0.055, 12, 32), [0, -0.72, 0.16]],
+    ["Bladder", "#7ab4c8", new THREE.SphereGeometry(0.18, 32, 18), [0, -1.05, 0.18]],
+  ];
+
+  for (const [name, color, geometry, position] of organSpecs) {
+    const material = new THREE.MeshPhysicalMaterial({
+      color,
+      roughness: 0.38,
+      metalness: 0.02,
+      clearcoat: 0.28,
+      clearcoatRoughness: 0.35,
+      emissive: new THREE.Color(color).multiplyScalar(0.08),
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = name;
+    mesh.position.set(...position);
+    if (name === "Heart") mesh.scale.set(0.82, 1.05, 0.62);
+    if (name.includes("lung")) mesh.scale.set(0.78, 1.32, 0.62);
+    if (name === "Brain") mesh.scale.set(1.18, 0.82, 0.72);
+    if (name === "Liver") mesh.scale.set(1.28, 0.74, 0.58);
+    if (name === "Stomach") mesh.scale.set(0.9, 1.18, 0.68);
+    if (name === "Bladder") mesh.scale.set(1.12, 0.72, 0.72);
+    mesh.userData.bodyVerseMaterials = [material];
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+
+  const aorta = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.035, 0.82, 8, 12),
+    new THREE.MeshPhysicalMaterial({ color: "#c93c4b", emissive: "#5a1018", emissiveIntensity: 0.12 }),
+  );
+  aorta.name = "Aorta";
+  aorta.position.set(-0.08, -0.12, 0.35);
+  aorta.userData.bodyVerseMaterials = [aorta.material];
+  group.add(aorta);
+
+  const venaCava = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.025, 0.72, 8, 12),
+    new THREE.MeshPhysicalMaterial({ color: "#4d74ad", emissive: "#132b52", emissiveIntensity: 0.12 }),
+  );
+  venaCava.name = "Vena cava";
+  venaCava.position.set(0.08, -0.28, 0.31);
+  venaCava.userData.bodyVerseMaterials = [venaCava.material];
+  group.add(venaCava);
+  return group;
 }
 
 function finishLoading(model, systemId, thisRequest) {
@@ -177,6 +265,36 @@ function finishLoading(model, systemId, thisRequest) {
     object.material = Array.isArray(object.material)
       ? object.userData.bodyVerseMaterials
       : object.userData.bodyVerseMaterials[0];
+    const name = normalizedName(object.name);
+    const palette = name.includes("heart") || name.includes("aorta")
+      ? "#df4f63"
+      : name.includes("lung") || name.includes("bronch")
+        ? "#67aeb2"
+        : name.includes("liver")
+          ? "#a87350"
+          : name.includes("kidney")
+            ? "#7e6ac1"
+            : name.includes("stomach")
+              ? "#dda167"
+              : name.includes("brain") || name.includes("cerebr")
+                ? "#b58ad7"
+                : name.includes("bone") || name.includes("rib") || name.includes("skull") || name.includes("vertebra")
+                  ? "#d7ca9a"
+                  : name.includes("muscle")
+                    ? "#c96e73"
+                    : name.includes("vein") || name.includes("vena")
+                      ? "#4d74ad"
+                      : name.includes("arter")
+                        ? "#d45a67"
+                        : null;
+    if (palette) {
+      for (const material of object.userData.bodyVerseMaterials) {
+        material.color?.set(palette);
+        material.roughness = 0.48;
+        material.metalness = 0.03;
+        if (material.emissive) material.emissive.set(palette).multiplyScalar(0.08);
+      }
+    }
     object.castShadow = true;
     object.receiveShadow = true;
     structures.push(object);
@@ -229,6 +347,16 @@ function loadSystem(systemId) {
     const selected = card.dataset.systemCard === systemId;
     card.classList.toggle("active", selected);
     card.setAttribute("aria-pressed", String(selected));
+  }
+
+  if (systemId === "whole-body") {
+    activeModel = createWholeBody();
+    finishLoading(activeModel, systemId, thisRequest);
+    detailName.textContent = "Major organs";
+    detailSystem.textContent = "Whole-body overview";
+    detailFunction.textContent = "A colourful 3D overview of the brain, heart, lungs, liver, kidneys, digestive organs, bladder, and major vessels.";
+    detailFact.textContent = "Click or search a structure to highlight and learn about it. This overview is illustrative, not a complete clinical atlas.";
+    return;
   }
 
   loader.load(
@@ -306,3 +434,4 @@ function animate() {
   renderer.render(scene, camera);
 }
 animate();
+loadSystem("whole-body");

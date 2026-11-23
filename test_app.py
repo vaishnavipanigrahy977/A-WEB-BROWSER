@@ -140,11 +140,19 @@ class MedicalAppTests(unittest.TestCase):
             "OrbitControls",
             "FBXLoader",
             "Raycaster",
+            "createWholeBody",
+            "Brain",
+            "Heart",
+            "Right kidney",
+            "Liver",
             "Z-Anatomy",
             "BodyParts3D",
             "CC BY-SA 4.0",
         ):
-            if expected in ("OrbitControls", "FBXLoader", "Raycaster"):
+            if expected in (
+                "OrbitControls", "FBXLoader", "Raycaster", "createWholeBody",
+                "Brain", "Heart", "Right kidney", "Liver",
+            ):
                 self.assertIn(expected, request("/static/body-verse.js")["body"])
             else:
                 self.assertIn(expected, page["body"])

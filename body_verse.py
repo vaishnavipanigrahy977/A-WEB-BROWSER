@@ -7,6 +7,12 @@ MODEL_BASE_URL = (
 )
 
 SYSTEMS = {
+    "whole-body": {
+        "label": "Whole body",
+        "description": "A colourful interactive overview of the major organs and body systems.",
+        "model": "",
+        "size": "Instant",
+    },
     "muscles": {
         "label": "Muscles",
         "description": "Explore the body's major muscles and supporting structures.",
