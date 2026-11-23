@@ -170,6 +170,33 @@ def mind_map_page(diseases, topic="", selected=None, reference=None, reference_e
     return layout("Mind map generator", content, "study")
 
 
+def flashcards_page(topic="", selected=None, reference=None, cards=None, card_index=0, reference_error=None):
+    cards = cards or []
+    topic_value = selected["name"] if selected else topic
+    picker = f"""<form action="/study/flashcards" method="get" class="mind-map-picker"><label for="flashcard-topic">Choose any disease or health topic</label><div><input id="flashcard-topic" name="topic" type="search" value="{e(topic_value)}" placeholder="For example: asthma, malaria, or diabetes" maxlength="120" required><button class="button button-dark" type="submit">Build deck</button></div></form>"""
+    card_html = ""
+    if cards:
+        card = cards[card_index]
+        answer = "".join(f"<li>{e(item)}</li>" for item in card["answer"])
+        if selected:
+            source_link = f"""<a class="flashcard-source" href="{e(selected["source_url"])}" target="_blank" rel="noopener noreferrer">Review {e(selected["source_name"])} ↗</a>"""
+            topic_param = selected["slug"]
+        else:
+            source_link = f"""<a class="flashcard-source" href="{e(reference["url"])}" target="_blank" rel="noopener noreferrer">Read the MedlinePlus article ↗</a>"""
+            topic_param = topic_value
+        previous = (card_index - 1) % len(cards)
+        next_card = (card_index + 1) % len(cards)
+        card_html = f"""<section class="flashcard-panel"><div class="flashcard-progress"><span class="eyebrow">CARD {card_index + 1} OF {len(cards)}</span><span>{e(card.get("category", "REVIEW"))}</span></div><div class="flashcard-front"><span class="eyebrow">QUESTION</span><h2>{e(card["question"])}</h2></div><details class="flashcard-reveal"><summary>Reveal answer</summary><div class="flashcard-back"><ul>{answer}</ul>{source_link}</div></details><nav class="flashcard-navigation" aria-label="Flashcard navigation"><a class="button button-outline" href="/study/flashcards?topic={quote_plus(topic_param)}&amp;card={previous}">← Previous</a><a class="button button-dark" href="/study/flashcards?topic={quote_plus(topic_param)}&amp;card={next_card}">Next card →</a></nav></section>"""
+    elif topic_value:
+        detail = (
+            f"No MedlinePlus article was found{f': {e(reference_error)}' if reference_error else ''}. "
+            "No factual flashcards were generated."
+        )
+        card_html = f"""<section class="content-panel flashcard-empty"><h2>No reviewed flashcards available</h2><p>{e(detail)}</p><a class="text-link" href="https://medlineplus.gov/" target="_blank" rel="noopener noreferrer">Search MedlinePlus ↗</a></section>"""
+    content = f"""<section class="simple-hero"><a class="back-link" href="/study">← Study room</a><span class="eyebrow">ACTIVE RECALL</span><h1>Smart flashcards<span class="brand-period">.</span></h1><p>Choose any topic, try to recall the answer, then reveal it and move through the deck.</p></section>{picker}{card_html}{notice("Learn safely.", "Cards summarize Wellnote educational guides or linked MedlinePlus references. They are for study, not personal diagnosis or treatment.")}"""
+    return layout("Smart flashcards", content, "study")
+
+
 def study_page(diseases, greeting, response=None, question=None, selected=None, result=None, prompt=None):
     import study
 
@@ -200,7 +227,7 @@ def study_page(diseases, greeting, response=None, question=None, selected=None, 
     if selected:
         intro = f'<section class="simple-hero"><a class="back-link" href="/study">← Study room</a><span class="eyebrow">FOCUSED REVIEW · {e(selected["category"])}</span><h1>{e(selected["name"])}<span class="brand-period">.</span></h1><p>Take a moment with the essentials, then revisit the full guide when you’re ready.</p></section>'
         points = "".join(f'<li class="study-point"><span class="point-number">{index:02d}</span><p>{e(point)}</p></li>' for index, point in enumerate(selected["study_points"], 1))
-        main = f'<section class="study-content"><div class="study-notebook"><span class="eyebrow">THREE THINGS TO REMEMBER</span><ol class="study-points">{points}</ol><a class="button button-dark" href="/disease/{quote(selected["slug"], safe="")}">Read the full guide →</a> <a class="button button-outline" href="/study/mind-map?topic={quote(selected["slug"], safe="")}">Make a mind map</a></div><aside class="reflection-card"><span class="reflection-icon">✳</span><span class="eyebrow">REFLECT</span><h2>What would you like to ask a health professional?</h2><p>Use what you’ve learned to prepare questions for a conversation about your own health.</p></aside></section>'
+        main = f'<section class="study-content"><div class="study-notebook"><span class="eyebrow">THREE THINGS TO REMEMBER</span><ol class="study-points">{points}</ol><a class="button button-dark" href="/disease/{quote(selected["slug"], safe="")}">Read the full guide →</a> <a class="button button-outline" href="/study/mind-map?topic={quote(selected["slug"], safe="")}">Make a mind map</a> <a class="button button-outline" href="/study/flashcards?topic={quote(selected["slug"], safe="")}">Study with flashcards</a></div><aside class="reflection-card"><span class="reflection-icon">✳</span><span class="eyebrow">REFLECT</span><h2>What would you like to ask a health professional?</h2><p>Use what you’ve learned to prepare questions for a conversation about your own health.</p></aside></section>'
         content = intro + main + bot + notice("Keep learning in context.", "Study notes summarize educational topics; they are not diagnostic tools or personal care recommendations.")
     elif question:
         options = "".join(f'<label class="answer-option"><input type="radio" name="answer" value="{i}" required>{"ABCD"[i]}. {e(option)}</label>' for i, option in enumerate(question["options"]))
@@ -208,7 +235,7 @@ def study_page(diseases, greeting, response=None, question=None, selected=None, 
         question_form = f'<div class="quiz-card"><span class="eyebrow">{e(question["subject"])} · ORIGINAL PRACTICE</span><h2>{e(question["question"])}</h2><form action="/study/answer/{e(question["id"])}" method="post" class="answer-form">{options}<button class="button button-dark" type="submit">Check answer</button></form>{feedback}<a class="button button-outline next-question" href="/study/question?after={quote(question["id"], safe="")}">Next question →</a></div>'
         content = f'<section class="simple-hero"><span class="eyebrow">PRACTICE, AT YOUR PACE</span><h1>One question at a time<span class="brand-period">.</span></h1><p>Original introductory examples. Check your reasoning with each explanation.</p></section><section class="practice-layout">{question_form}{bot}</section>{notice("Original practice only.", "These introductory questions are not official NEET, MCAT, or AAMC exam items and do not represent the full syllabus.")}'
     else:
-        intro = '<section class="study-intro"><div><span class="eyebrow">A GENTLER WAY TO LEARN</span><h1>Welcome to your<br><span>study room.</span></h1><p>Short reviews, original practice, and a small study companion—no pressure, just a little more understanding.</p><div class="study-actions"><a class="button button-dark" href="/study/question">Try a practice question →</a><a class="button button-outline" href="/study/mind-map">Generate a mind map</a></div></div><div class="study-illustration" aria-hidden="true"><span class="study-plant">✳</span><span class="study-book">✎</span><span class="study-underline"></span></div></section>'
+        intro = '<section class="study-intro"><div><span class="eyebrow">A GENTLER WAY TO LEARN</span><h1>Welcome to your<br><span>study room.</span></h1><p>Short reviews, original practice, and a small study companion—no pressure, just a little more understanding.</p><div class="study-actions"><a class="button button-dark" href="/study/question">Try a practice question →</a><a class="button button-outline" href="/study/mind-map">Generate a mind map</a><a class="button button-outline" href="/study/flashcards">Smart flashcards</a></div></div><div class="study-illustration" aria-hidden="true"><span class="study-plant">✳</span><span class="study-book">✎</span><span class="study-underline"></span></div></section>'
         main = f'<section class="study-content study-home"><div><div class="section-heading"><div><span class="eyebrow">YOUR TOPICS</span><h2>Choose what to review</h2><p>Essentials from each health guide.</p></div></div><div class="study-grid">{lesson_cards}</div><div class="exam-panel"><span class="eyebrow">EXAM STARTERS</span><h2>Preparing for an exam?</h2><p>Ask the study buddy about NEET, MCAT, or AAMC. For current exam details and syllabi, check the official provider.</p>{exam_links}</div></div>{bot}</section>{notice("Study, not a substitute.", "Study buddy replies are for education, not personal diagnosis or treatment. For your own symptoms or care, consult a qualified health professional.")}'
         content = intro + main
     content += '<script src="/static/voice-tutor.js" defer></script>'
