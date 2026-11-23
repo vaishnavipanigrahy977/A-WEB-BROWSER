@@ -33,13 +33,6 @@ SYSTEMS = {
         "size": "Sketchfab 3D",
         "embed": "0caae8f894cc40b69f3f78adf14b9665",
     },
-    "lymphatic": {
-        "label": "Lymphatic system",
-        "description": "Explore lymphatic and immune structures throughout the body.",
-        "model": "",
-        "size": "Sketchfab 3D",
-        "embed": "14800d739ecb46678d7584a401b0aa77",
-    },
     "skeleton": {
         "label": "Skeleton",
         "description": "Explore the bones and joints that support and protect the body.",

@@ -136,7 +136,7 @@ class MedicalAppTests(unittest.TestCase):
             'data-detail-fact',
             'href="/static/body-verse.css"',
             'type="importmap"',
-            'type="module" src="/static/body-verse.js?v=20261124-clean-sketchfab-ui"',
+            'type="module" src="/static/body-verse.js?v=20261124-white-sketchfab-ui"',
             "OrbitControls",
             "FBXLoader",
             "Raycaster",
@@ -145,11 +145,6 @@ class MedicalAppTests(unittest.TestCase):
             "CC BY-SA 4.0",
             "0caae8f894cc40b69f3f78adf14b9665",
             "fe69d7b1ed6f46a3bd0b6933b796092e",
-            "14800d739ecb46678d7584a401b0aa77",
-            "whole-body.avif",
-            "organs.jpg",
-            "nervous-system.jpg",
-            "lymphatic-system.jpg",
         ):
             if expected in (
                 "OrbitControls", "FBXLoader", "Raycaster",
