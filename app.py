@@ -127,6 +127,24 @@ def application(environ, start_response):
         return respond(start_response, HTTPStatus.OK, templates.saved_page(
             [diseases.DISEASES_BY_SLUG[slug] for slug in saved]
         ))
+    if path == "/study/mind-map":
+        topic = parse_qs(environ.get("QUERY_STRING", "")).get("topic", [""])[0].strip()[:120]
+        normalized_topic = topic.casefold()
+        selected = next((
+            item for item in diseases.DISEASES
+            if normalized_topic in (
+                item["name"].casefold(),
+                item["slug"].replace("-", " ").casefold(),
+            )
+        ), None)
+        reference = None
+        reference_error = None
+        if topic and not selected:
+            results, reference_error = search_medlineplus(topic)
+            reference = results[0] if results else None
+        return respond(start_response, HTTPStatus.OK, templates.mind_map_page(
+            diseases.DISEASES, topic, selected, reference, reference_error
+        ))
     if path in ("/study", "/study/question"):
         question = None
         if path.endswith("/question"):

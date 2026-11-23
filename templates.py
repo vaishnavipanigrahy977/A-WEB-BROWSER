@@ -2,7 +2,7 @@
 
 from html import escape
 import re
-from urllib.parse import quote
+from urllib.parse import quote, quote_plus
 
 
 def e(value):
@@ -120,6 +120,56 @@ def saved_page(diseases):
     return layout("Saved topics", content, "saved")
 
 
+def mind_map_page(diseases, topic="", selected=None, reference=None, reference_error=None):
+    import study
+
+    topic_value = selected["name"] if selected else topic
+    picker = f"""<form action="/study/mind-map" method="get" class="mind-map-picker"><label for="mind-map-topic">Enter any disease or health topic</label><div><input id="mind-map-topic" name="topic" type="search" value="{e(topic_value)}" placeholder="For example: malaria, lupus, or asthma" maxlength="120" required><button class="button button-dark" type="submit">Generate map</button></div></form>"""
+    diagram = ""
+    if topic_value:
+        if selected:
+            branches = study.create_mind_map(selected)
+            title = selected["name"]
+            summary = selected["summary"]
+            source = f"""Based on Wellnote’s educational guide. <a href="{e(selected["source_url"])}" target="_blank" rel="noopener noreferrer">Read {e(selected["source_name"])} ↗</a>"""
+        else:
+            branches = study.create_reference_mind_map(topic_value, reference)
+            title = topic_value
+            summary = (
+                "Available details from the reference appear in the branches below."
+                if branches else
+                "No source details were available for branches; use the linked article to research this topic."
+                if reference else
+                "No matching MedlinePlus article was found, so only the topic node is shown."
+            )
+            source = (
+                f"""Based on a MedlinePlus search result. <a href="{e(reference["url"])}" target="_blank" rel="noopener noreferrer">Read {e(reference["title"])} ↗</a>"""
+                if reference else
+                f"""No MedlinePlus article was found{f": {e(reference_error)}" if reference_error else ""}. <a href="https://medlineplus.gov/" target="_blank" rel="noopener noreferrer">Search MedlinePlus ↗</a>"""
+            )
+        branch_cards = []
+        for branch in branches:
+            points = "".join(f"<li>{e(point)}</li>" for point in branch["points"])
+            detail_link = ""
+            if not selected and reference:
+                detail_link = (
+                    f'<a class="mind-map-detail-link" href="{e(reference["url"])}" '
+                    'target="_blank" rel="noopener noreferrer">Open the full article for details ↗</a>'
+                )
+            elif not selected:
+                detail_link = (
+                    f'<a class="mind-map-detail-link" href="/?q={quote_plus(topic_value)}">'
+                    "Search MedlinePlus for details ↗</a>"
+                )
+            branch_cards.append(
+                f'<section class="mind-map-branch"><h3>{e(branch["title"])}</h3>'
+                f"<ul>{points}</ul>{detail_link}</section>"
+            )
+        diagram = f"""<section class="mind-map-canvas" aria-label="Mind map for {e(title)}"><div class="mind-map-root"><span class="eyebrow">STUDY TOPIC</span><h2>{e(title)}</h2><p>{e(summary)}</p></div><div class="mind-map-branches">{"".join(branch_cards)}</div></section><p class="mind-map-source">{source}</p>"""
+    content = f"""<section class="simple-hero"><a class="back-link" href="/study">← Study room</a><span class="eyebrow">VISUAL STUDY TOOL</span><h1>Mind map generator<span class="brand-period">.</span></h1><p>Enter any health topic. Wellnote uses its reviewed guide or searches MedlinePlus for a reference.</p></section>{picker}{diagram}{notice("Learning, not diagnosis.", "Maps outside Wellnote’s reviewed guides use linked references or clearly labeled study prompts. They are educational and not personal medical advice.")}"""
+    return layout("Mind map generator", content, "study")
+
+
 def study_page(diseases, greeting, response=None, question=None, selected=None, result=None, prompt=None):
     import study
 
@@ -150,7 +200,7 @@ def study_page(diseases, greeting, response=None, question=None, selected=None, 
     if selected:
         intro = f'<section class="simple-hero"><a class="back-link" href="/study">← Study room</a><span class="eyebrow">FOCUSED REVIEW · {e(selected["category"])}</span><h1>{e(selected["name"])}<span class="brand-period">.</span></h1><p>Take a moment with the essentials, then revisit the full guide when you’re ready.</p></section>'
         points = "".join(f'<li class="study-point"><span class="point-number">{index:02d}</span><p>{e(point)}</p></li>' for index, point in enumerate(selected["study_points"], 1))
-        main = f'<section class="study-content"><div class="study-notebook"><span class="eyebrow">THREE THINGS TO REMEMBER</span><ol class="study-points">{points}</ol><a class="button button-dark" href="/disease/{quote(selected["slug"], safe="")}">Read the full guide →</a></div><aside class="reflection-card"><span class="reflection-icon">✳</span><span class="eyebrow">REFLECT</span><h2>What would you like to ask a health professional?</h2><p>Use what you’ve learned to prepare questions for a conversation about your own health.</p></aside></section>'
+        main = f'<section class="study-content"><div class="study-notebook"><span class="eyebrow">THREE THINGS TO REMEMBER</span><ol class="study-points">{points}</ol><a class="button button-dark" href="/disease/{quote(selected["slug"], safe="")}">Read the full guide →</a> <a class="button button-outline" href="/study/mind-map?topic={quote(selected["slug"], safe="")}">Make a mind map</a></div><aside class="reflection-card"><span class="reflection-icon">✳</span><span class="eyebrow">REFLECT</span><h2>What would you like to ask a health professional?</h2><p>Use what you’ve learned to prepare questions for a conversation about your own health.</p></aside></section>'
         content = intro + main + bot + notice("Keep learning in context.", "Study notes summarize educational topics; they are not diagnostic tools or personal care recommendations.")
     elif question:
         options = "".join(f'<label class="answer-option"><input type="radio" name="answer" value="{i}" required>{"ABCD"[i]}. {e(option)}</label>' for i, option in enumerate(question["options"]))
@@ -158,7 +208,7 @@ def study_page(diseases, greeting, response=None, question=None, selected=None, 
         question_form = f'<div class="quiz-card"><span class="eyebrow">{e(question["subject"])} · ORIGINAL PRACTICE</span><h2>{e(question["question"])}</h2><form action="/study/answer/{e(question["id"])}" method="post" class="answer-form">{options}<button class="button button-dark" type="submit">Check answer</button></form>{feedback}<a class="button button-outline next-question" href="/study/question?after={quote(question["id"], safe="")}">Next question →</a></div>'
         content = f'<section class="simple-hero"><span class="eyebrow">PRACTICE, AT YOUR PACE</span><h1>One question at a time<span class="brand-period">.</span></h1><p>Original introductory examples. Check your reasoning with each explanation.</p></section><section class="practice-layout">{question_form}{bot}</section>{notice("Original practice only.", "These introductory questions are not official NEET, MCAT, or AAMC exam items and do not represent the full syllabus.")}'
     else:
-        intro = '<section class="study-intro"><div><span class="eyebrow">A GENTLER WAY TO LEARN</span><h1>Welcome to your<br><span>study room.</span></h1><p>Short reviews, original practice, and a small study companion—no pressure, just a little more understanding.</p><a class="button button-dark" href="/study/question">Try a practice question →</a></div><div class="study-illustration" aria-hidden="true"><span class="study-plant">✳</span><span class="study-book">✎</span><span class="study-underline"></span></div></section>'
+        intro = '<section class="study-intro"><div><span class="eyebrow">A GENTLER WAY TO LEARN</span><h1>Welcome to your<br><span>study room.</span></h1><p>Short reviews, original practice, and a small study companion—no pressure, just a little more understanding.</p><div class="study-actions"><a class="button button-dark" href="/study/question">Try a practice question →</a><a class="button button-outline" href="/study/mind-map">Generate a mind map</a></div></div><div class="study-illustration" aria-hidden="true"><span class="study-plant">✳</span><span class="study-book">✎</span><span class="study-underline"></span></div></section>'
         main = f'<section class="study-content study-home"><div><div class="section-heading"><div><span class="eyebrow">YOUR TOPICS</span><h2>Choose what to review</h2><p>Essentials from each health guide.</p></div></div><div class="study-grid">{lesson_cards}</div><div class="exam-panel"><span class="eyebrow">EXAM STARTERS</span><h2>Preparing for an exam?</h2><p>Ask the study buddy about NEET, MCAT, or AAMC. For current exam details and syllabi, check the official provider.</p>{exam_links}</div></div>{bot}</section>{notice("Study, not a substitute.", "Study buddy replies are for education, not personal diagnosis or treatment. For your own symptoms or care, consult a qualified health professional.")}'
         content = intro + main
     content += '<script src="/static/voice-tutor.js" defer></script>'
