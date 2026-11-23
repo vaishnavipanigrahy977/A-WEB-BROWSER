@@ -155,20 +155,47 @@ class MedicalAppTests(unittest.TestCase):
     def test_mind_map_uses_external_reference_for_unlisted_disease(self):
         source = {
             "title": "Malaria",
-            "summary": "Malaria is a disease caused by parasites.",
+            "summary": (
+                "Malaria is a disease caused by parasites. "
+                "Symptoms include fever and chills. Malaria can be prevented. "
+                "Treatment includes antimalarial medicines."
+            ),
             "url": "https://medlineplus.gov/malaria.html",
         }
         with patch("app.search_medlineplus", return_value=([source], None)) as lookup:
             generated = request("/study/mind-map", query="topic=malaria")
         lookup.assert_called_once_with("malaria")
         for expected in (
-            "Mind map for Malaria", "Malaria is a disease caused by parasites.",
-            "Symptoms", "Review the linked source for symptoms of malaria",
-            "Prevention", "Treatment &amp; care", "Study questions",
+            "Mind map for malaria", "Malaria is a disease caused by parasites.",
+            "Symptoms", "Symptoms include fever and chills.",
+            "Prevention", "Malaria can be prevented.",
+            "Treatment &amp; care", "Treatment includes antimalarial medicines.",
+            "Study questions", "Open the full article for details ↗",
             "https://medlineplus.gov/malaria.html",
         ):
             self.assertIn(expected, generated["body"])
-        self.assertNotIn("the search summary does not detail", generated["body"])
+        self.assertEqual(generated["body"].count('class="mind-map-detail-link"'), 5)
+
+    def test_mind_map_keeps_unavailable_branches_with_source_links(self):
+        source = {
+            "title": "Learning Disabilities",
+            "summary": (
+                "Learning disabilities are conditions that affect the ability to learn. "
+                "They can cause problems with reading and writing."
+            ),
+            "url": "https://medlineplus.gov/learningdisabilities.html",
+        }
+        with patch("app.search_medlineplus", return_value=([source], None)):
+            generated = request("/study/mind-map", query="topic=dyslexia")
+        self.assertIn('<h2>dyslexia</h2>', generated["body"])
+        self.assertIn("Learning disabilities are conditions that affect", generated["body"])
+        self.assertIn("Overview", generated["body"])
+        self.assertIn("Symptoms</h3>", generated["body"])
+        self.assertIn("Symptom details for dyslexia were not included", generated["body"])
+        self.assertIn("Prevention</h3>", generated["body"])
+        self.assertIn("Treatment &amp; care</h3>", generated["body"])
+        symptoms_card = generated["body"].split('<section class="mind-map-branch"><h3>Symptoms</h3>', 1)[1]
+        self.assertIn("Open the full article for details ↗", symptoms_card.split("</section>", 1)[0])
 
     def test_mind_map_still_renders_research_outline_without_reference(self):
         with patch("app.search_medlineplus", return_value=([], None)) as lookup:
@@ -177,7 +204,9 @@ class MedicalAppTests(unittest.TestCase):
         self.assertTrue(generated["status"].startswith("200"))
         self.assertIn("Mind map for rare condition", generated["body"])
         self.assertIn("No MedlinePlus article was found", generated["body"])
-        self.assertIn("not disease facts", generated["body"])
+        self.assertIn("Symptoms</h3>", generated["body"])
+        self.assertIn("Search MedlinePlus for details", generated["body"])
+        self.assertEqual(generated["body"].count('class="mind-map-detail-link"'), 5)
 
     def test_study_intent_answers_medical_symptom_question_educationally(self):
         source = {

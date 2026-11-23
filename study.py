@@ -187,33 +187,43 @@ def create_mind_map(disease):
 
 def create_reference_mind_map(topic, reference=None):
     summary = reference.get("summary", "").strip() if reference else ""
-    overview = (
-        [summary]
-        if summary
-        else ["No reviewed summary was available; use this map as a research outline."]
-    )
-    return [
-        {"title": "Overview", "points": overview},
-        {
-            "title": "Symptoms",
-            "points": [f"Review the linked source for symptoms of {topic}."],
-        },
-        {
-            "title": "Prevention",
-            "points": [f"Review prevention and risk-reduction information about {topic} in the linked source."],
-        },
-        {
-            "title": "Treatment & care",
-            "points": [f"Review treatment and care information about {topic} in the linked source; this map is not personal medical advice."],
-        },
-        {
-            "title": "Study questions",
-            "points": [
-                f"What does a trusted source say about the causes of {topic}?",
-                f"What does the source explain about {topic}'s symptoms, prevention, and care?",
-            ],
-        },
+    sentences = [
+        sentence.strip()
+        for sentence in re.split(r"(?<=[.!?])\s+", summary)
+        if sentence.strip()
     ]
+    branches = [{
+        "title": "Overview",
+        "points": [summary] if summary else ["No reviewed overview was found in the search result."],
+    }]
+    categories = (
+        (
+            "Symptoms",
+            r"\b(?:symptoms?|signs?(?: and symptoms?)?)\b",
+            f"Symptom details for {topic} were not included in this search summary.",
+        ),
+        (
+            "Prevention",
+            r"\b(?:prevent\w*|prevention|risk reduction|reduce the risk|lower the risk|protect\w*|avoid\w*)\b",
+            f"Prevention details for {topic} were not included in this search summary.",
+        ),
+        (
+            "Treatment & care",
+            r"\b(?:treat\w*|medications?|medicines?|drugs?|therap(?:y|ies)|cur(?:e|able)|manage\w*)\b",
+            f"Treatment details for {topic} were not included in this search summary.",
+        ),
+    )
+    for title, pattern, fallback in categories:
+        points = [sentence for sentence in sentences if re.search(pattern, sentence, re.IGNORECASE)]
+        branches.append({"title": title, "points": points or [fallback]})
+    branches.append({
+        "title": "Study questions",
+        "points": [
+            f"What does a trusted source say about the causes of {topic}?",
+            f"What details about {topic} should be confirmed in the full article?",
+        ],
+    })
+    return branches
 
 
 AI_SYSTEM_PROMPT = (
