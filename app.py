@@ -30,6 +30,18 @@ def saved_slugs(environ):
     ))
 
 
+def find_local_disease(topic):
+    normalized_topic = topic.casefold()
+    return next((
+        item for item in diseases.DISEASES
+        if normalized_topic in (
+            item["name"].casefold(),
+            item["slug"].casefold(),
+            item["slug"].replace("-", " ").casefold(),
+        )
+    ), None)
+
+
 def respond(start_response, status, body, extra_headers=None, content_type="text/html; charset=utf-8"):
     payload = body if isinstance(body, bytes) else body.encode("utf-8")
     headers = [
@@ -129,14 +141,7 @@ def application(environ, start_response):
         ))
     if path == "/study/mind-map":
         topic = parse_qs(environ.get("QUERY_STRING", "")).get("topic", [""])[0].strip()[:120]
-        normalized_topic = topic.casefold()
-        selected = next((
-            item for item in diseases.DISEASES
-            if normalized_topic in (
-                item["name"].casefold(),
-                item["slug"].replace("-", " ").casefold(),
-            )
-        ), None)
+        selected = find_local_disease(topic)
         reference = None
         reference_error = None
         if topic and not selected:
@@ -147,14 +152,7 @@ def application(environ, start_response):
         ))
     if path == "/study/flashcards":
         topic = parse_qs(environ.get("QUERY_STRING", "")).get("topic", [""])[0].strip()[:120]
-        normalized_topic = topic.casefold()
-        selected = next((
-            item for item in diseases.DISEASES
-            if normalized_topic in (
-                item["name"].casefold(),
-                item["slug"].replace("-", " ").casefold(),
-            )
-        ), None)
+        selected = find_local_disease(topic)
         reference = None
         reference_error = None
         if topic and not selected:
@@ -175,6 +173,35 @@ def application(environ, start_response):
             card_index = 0
         return respond(start_response, HTTPStatus.OK, templates.flashcards_page(
             topic, selected, reference, cards, card_index, reference_error
+        ))
+    if path == "/study/compare":
+        params = parse_qs(environ.get("QUERY_STRING", ""))
+        first = params.get("first", [""])[0].strip()[:120]
+        second = params.get("second", [""])[0].strip()[:120]
+        left = right = None
+        error = None
+        if first and second:
+            if first.casefold() == second.casefold():
+                error = "Enter two different diseases or health topics to compare."
+            else:
+                left_local = find_local_disease(first)
+                right_local = find_local_disease(second)
+                left_reference = right_reference = None
+                left_error = right_error = None
+                if not left_local:
+                    results, left_error = search_medlineplus(first)
+                    left_reference = results[0] if results else None
+                if not right_local:
+                    results, right_error = search_medlineplus(second)
+                    right_reference = results[0] if results else None
+                left = study.compare_health_topic(
+                    first, left_local, left_reference, left_error
+                )
+                right = study.compare_health_topic(
+                    second, right_local, right_reference, right_error
+                )
+        return respond(start_response, HTTPStatus.OK, templates.disease_comparison_page(
+            first, second, left, right, error
         ))
     if path in ("/study", "/study/question"):
         question = None

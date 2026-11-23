@@ -272,6 +272,49 @@ def create_reference_flashcards(topic, reference):
     ]
 
 
+def compare_health_topic(topic, disease=None, reference=None, reference_error=None):
+    if disease:
+        return {
+            "name": disease["name"],
+            "overview": [disease["summary"], disease["description"]],
+            "symptoms": disease["symptoms"],
+            "prevention": disease["prevention"],
+            "treatment": [disease["treatment"]],
+            "source_name": disease["source_name"],
+            "source_url": disease["source_url"],
+        }
+
+    branches = {
+        branch["title"]: branch["points"]
+        for branch in create_reference_mind_map(topic, reference)
+    }
+    if reference:
+        return {
+            "name": topic,
+            "overview": branches.get("Overview", ["No overview details in the search result."]),
+            "symptoms": branches.get("Symptoms", ["No symptom details in the search summary."]),
+            "prevention": branches.get("Prevention", ["No prevention details in the search summary."]),
+            "treatment": branches.get("Treatment & care", ["No treatment details in the search summary."]),
+            "source_name": reference["title"],
+            "source_url": reference["url"],
+        }
+
+    unavailable = [
+        f"MedlinePlus lookup failed: {reference_error}"
+        if reference_error
+        else f"No reviewed MedlinePlus details were found for {topic}."
+    ]
+    return {
+        "name": topic,
+        "overview": unavailable,
+        "symptoms": unavailable,
+        "prevention": unavailable,
+        "treatment": unavailable,
+        "source_name": "Search MedlinePlus",
+        "source_url": "https://medlineplus.gov/",
+    }
+
+
 AI_SYSTEM_PROMPT = (
     "You are Wellnote's friendly study and general-purpose assistant. Answer the "
     "user's actual question clearly and helpfully, including general knowledge, "
