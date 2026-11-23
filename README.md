@@ -61,11 +61,9 @@ can be incomplete or incorrect. Wellnote does not guarantee comprehensive
 world knowledge. Provider errors are shown in the study buddy instead of being
 silently replaced with a canned answer.
 
-The study room's voice controls use the browser's speech-recognition and
-speech-synthesis features. Microphone input requires permission and a compatible
-browser; availability and speech processing depend on the browser and its
-settings. Voice uses the browser's preferred language. Wellnote does not store
-voice recordings. You can always type a prompt if voice input is unavailable.
+The study room's read-aloud controls use the browser's speech-synthesis feature.
+Availability and voice selection depend on the browser and its settings. Tutor
+questions are entered as text.
 
 ## What's included
 
@@ -77,8 +75,8 @@ voice recordings. You can always type a prompt if voice input is unavailable.
   says so and offers MedlinePlus directly instead of inventing details.
 - A saved-topics list stored in a browser cookie.
 - A study room with rotating greetings, a configurable AI study companion (or
-  curated local replies when no AI provider is configured), voice questions and
-  spoken answers through browser speech features,
+  curated local replies when no AI provider is configured), and spoken answers
+  through browser speech features,
   introductory original practice questions, and answer explanations.
 - A study-buddy overview of all 13 essential vitamins, common deficiency
   findings, dietary sources, a link to NIH fact sheets, and clinical safety context.

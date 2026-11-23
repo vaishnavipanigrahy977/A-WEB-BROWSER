@@ -81,7 +81,6 @@ def application(environ, start_response):
                 study.greeting(),
                 study.make_response(prompt),
                 prompt=prompt,
-                speak_response=form.get("voice", [""])[0] == "1",
             ))
         if path.startswith("/study/answer/"):
             question = next((q for q in study.QUESTIONS if q["id"] == path.rsplit("/", 1)[-1]), None)
