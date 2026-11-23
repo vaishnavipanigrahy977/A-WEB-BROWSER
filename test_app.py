@@ -136,6 +136,24 @@ class MedicalAppTests(unittest.TestCase):
         self.assertIn("step by step", make_response("Help me with homework"))
         self.assertIn("personal symptoms", make_response("I have a symptom"))
 
+    def test_mind_map_picker_and_reviewed_topic_map(self):
+        picker = request("/study/mind-map")
+        self.assertIn("Choose a health topic", picker["body"])
+        self.assertIn("Generate map", picker["body"])
+        self.assertIn("asthma", picker["body"])
+
+        generated = request("/study/mind-map", query="topic=asthma")
+        for expected in (
+            "Mind map for Asthma", "Common symptoms",
+            "Prevention &amp; risk reduction", "Treatment &amp; care",
+            "Study takeaways", "National Heart, Lung, and Blood Institute",
+        ):
+            self.assertIn(expected, generated["body"])
+        self.assertIn("Make a mind map", request("/study/asthma")["body"])
+
+        invalid = request("/study/mind-map", query="topic=unknown")
+        self.assertTrue(invalid["status"].startswith("404"))
+
     def test_study_intent_answers_medical_symptom_question_educationally(self):
         source = {
             "title": "Malaria",

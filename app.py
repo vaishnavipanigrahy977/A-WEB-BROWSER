@@ -127,6 +127,17 @@ def application(environ, start_response):
         return respond(start_response, HTTPStatus.OK, templates.saved_page(
             [diseases.DISEASES_BY_SLUG[slug] for slug in saved]
         ))
+    if path == "/study/mind-map":
+        topic = parse_qs(environ.get("QUERY_STRING", "")).get("topic", [""])[0].strip()
+        selected = diseases.DISEASES_BY_SLUG.get(topic) if topic else None
+        if topic and selected is None:
+            status, body = templates.error_page(
+                "Topic not found", "Choose a topic from the Wellnote study library."
+            )
+            return respond(start_response, status, body)
+        return respond(start_response, HTTPStatus.OK, templates.mind_map_page(
+            diseases.DISEASES, selected
+        ))
     if path in ("/study", "/study/question"):
         question = None
         if path.endswith("/question"):

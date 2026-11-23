@@ -174,6 +174,17 @@ def next_question_id(after=None):
         index = -1
     return ids[(index + 1) % len(ids)]
 
+
+def create_mind_map(disease):
+    return [
+        {"title": "Overview", "points": [disease["summary"], disease["description"]]},
+        {"title": "Common symptoms", "points": disease["symptoms"]},
+        {"title": "Prevention & risk reduction", "points": disease["prevention"]},
+        {"title": "Treatment & care", "points": [disease["treatment"]]},
+        {"title": "Study takeaways", "points": disease["study_points"]},
+    ]
+
+
 AI_SYSTEM_PROMPT = (
     "You are Wellnote's friendly study and general-purpose assistant. Answer the "
     "user's actual question clearly and helpfully, including general knowledge, "
