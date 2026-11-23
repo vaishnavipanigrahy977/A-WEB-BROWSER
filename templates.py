@@ -5,13 +5,14 @@ import re
 from urllib.parse import quote, quote_plus, urlencode
 
 import translations
+import body_verse
 
 
 def e(value):
     return escape(str(value), quote=True)
 
 
-def layout(title, content, active="home", language="en", current_url="/"):
+def layout(title, content, active="home", language="en", current_url="/", extra_styles=""):
     import study
 
     title = translations.translate(title, language)
@@ -57,7 +58,7 @@ def layout(title, content, active="home", language="en", current_url="/"):
     voice_data += (
         f' data-voice-gemini-enabled="{str(study.gemini_speech_configured()).lower()}"'
     )
-    return f"""<!doctype html><html lang="{e(html_language)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f5f6ef"><title>{e(title)} · WellNote</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="/static/style.css"><link rel="stylesheet" href="/static/language.css"></head><body {voice_data}><header class="site-header"><a class="brand" href="/"><span class="brand-mark">w</span><span>WellNote<span class="brand-period">.</span></span></a><nav class="main-nav" aria-label="{e(translations.translate("Main navigation", language))}">{nav}</nav>{switcher}<span class="header-note"><span class="status-dot"></span>{e(translations.translate("A calmer way to learn", language))}</span></header><main>{content}</main><footer class="site-footer"><a class="brand footer-brand" href="/"><span class="brand-mark">w</span><span>WellNote<span class="brand-period">.</span></span></a><p>{e(translations.translate("Clearer health learning, one topic at a time.", language))}</p>{translation_note}<p class="footer-disclaimer">{e(translations.translate("For education only · Not a substitute for professional medical advice", language))}</p></footer></body></html>"""
+    return f"""<!doctype html><html lang="{e(html_language)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f5f6ef"><title>{e(title)} · WellNote</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="/static/style.css"><link rel="stylesheet" href="/static/language.css">{extra_styles}</head><body {voice_data}><header class="site-header"><a class="brand" href="/"><span class="brand-mark">w</span><span>WellNote<span class="brand-period">.</span></span></a><nav class="main-nav" aria-label="{e(translations.translate("Main navigation", language))}">{nav}</nav>{switcher}<span class="header-note"><span class="status-dot"></span>{e(translations.translate("A calmer way to learn", language))}</span></header><main>{content}</main><footer class="site-footer"><a class="brand footer-brand" href="/"><span class="brand-mark">w</span><span>WellNote<span class="brand-period">.</span></span></a><p>{e(translations.translate("Clearer health learning, one topic at a time.", language))}</p>{translation_note}<p class="footer-disclaimer">{e(translations.translate("For education only · Not a substitute for professional medical advice", language))}</p></footer></body></html>"""
 
 
 def saved_topic_button(topic, saved_topics=(), language="en"):
@@ -337,6 +338,107 @@ def flashcards_page(topic="", selected=None, reference=None, cards=None, card_in
     return layout("Smart flashcards", content, "study", language, current_url)
 
 
+def body_verse_page(language="en", current_url="/"):
+    def localized(text):
+        return translations.translate(text, language)
+
+    layer_buttons = "".join(
+        f'<button type="button" class="body-layer-button{" active" if layer_id == "organs" else ""}" data-body-layer="{layer_id}" aria-pressed="{str(layer_id == "organs").lower()}">{e(localized(layer["label"]))}</button>'
+        for layer_id, layer in body_verse.LAYERS.items()
+    )
+    svg_layers = []
+    part_lists = []
+    for layer_id, layer in body_verse.LAYERS.items():
+        active = layer_id == "organs"
+        svg_parts = []
+        buttons = []
+        for index, part in enumerate(layer["parts"]):
+            part_id = part["id"]
+            name = localized(part["name"])
+            system = localized(part["system"])
+            summary = localized(part["summary"])
+            fact = localized(part["fact"])
+            selected = active and part_id == "heart"
+            svg_parts.append(
+                f'<g class="anatomy-hit{" is-selected" if selected else ""}" '
+                f'role="button" tabindex="0" aria-label="{e(name)}" '
+                f'data-anatomy-id="{part_id}">{body_verse.SHAPES[part_id]}</g>'
+            )
+            buttons.append(
+                f'<button type="button" class="body-part-button{" selected" if selected else ""}" '
+                f'data-anatomy-id="{part_id}" data-name="{e(name)}" '
+                f'data-system="{e(system)}" data-function="{e(summary)}" '
+                f'data-fact="{e(fact)}" aria-pressed="{str(selected).lower()}">'
+                f'<span>{e(name)}</span><small>{e(system)}</small></button>'
+            )
+        svg_layers.append(
+            f'<g class="body-layer" data-body-layer="{layer_id}"'
+            f'{" hidden" if not active else ""} aria-hidden="{str(not active).lower()}">'
+            f'{"".join(svg_parts)}</g>'
+        )
+        part_lists.append(
+            f'<div class="body-part-list" data-part-list="{layer_id}"'
+            f'{" hidden" if not active else ""}>{"".join(buttons)}</div>'
+        )
+
+    svg = f"""<svg class="body-verse-svg" viewBox="0 0 400 700" role="img" aria-label="{e(localized("Interactive human body model"))}">
+      <defs>
+        <linearGradient id="body-skin" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#f6dbc9"/><stop offset=".52" stop-color="#eec9b4"/><stop offset="1" stop-color="#d9aa94"/></linearGradient>
+        <radialGradient id="body-glow"><stop offset="0" stop-color="#fff" stop-opacity=".8"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+        <filter id="body-shadow" x="-35%" y="-20%" width="170%" height="150%"><feDropShadow dx="0" dy="12" stdDeviation="10" flood-color="#304d42" flood-opacity=".15"/></filter>
+      </defs>
+      <ellipse cx="200" cy="673" rx="117" ry="15" fill="#294a3d" opacity=".12"/>
+      <g class="body-shell" filter="url(#body-shadow)">
+        <ellipse cx="200" cy="76" rx="37" ry="47" fill="url(#body-skin)" stroke="#ca9981" stroke-width="2"/>
+        <path d="M181 112h38v38h-38z" fill="url(#body-skin)" stroke="#ca9981" stroke-width="2"/>
+        <path d="M146 137c-24 4-41 19-48 43l-29 91c-5 15 2 28 14 31 11 3 19-4 23-17l28-69-9 99c-2 23 10 41 30 49h90c20-8 32-26 30-49l-9-99 28 69c4 13 12 20 23 17 12-3 19-16 14-31l-29-91c-7-24-24-39-48-43l-27-4h-58z" fill="url(#body-skin)" stroke="#ca9981" stroke-width="2"/>
+        <path d="M155 361c-16 13-21 35-20 62l7 111c1 16 11 25 22 20 9-4 11-16 12-30l11-79 13-83zm90 0c16 13 21 35 20 62l-7 111c-1 16-11 25-22 20-9-4-11-16-12-30l-11-79-13-83z" fill="url(#body-skin)" stroke="#ca9981" stroke-width="2"/>
+        <path d="M144 535c-11 15-17 42-19 91-1 18 9 23 19 13l25-26 15-82zm112 0c11 15 17 42 19 91 1 18-9 23-19 13l-25-26-15-82z" fill="url(#body-skin)" stroke="#ca9981" stroke-width="2"/>
+        <ellipse cx="187" cy="177" rx="38" ry="72" fill="url(#body-glow)" opacity=".42"/>
+      </g>
+      {"".join(svg_layers)}
+    </svg>"""
+    initial = next(
+        part for part in body_verse.LAYERS["organs"]["parts"]
+        if part["id"] == "heart"
+    )
+    initial_values = {
+        key: localized(initial[key])
+        for key in ("name", "system", "summary", "fact")
+    }
+    part_panel = "".join(part_lists)
+    content = f"""<section class="simple-hero body-verse-hero"><a class="back-link" href="/study">{e(localized("← Study room"))}</a><span class="eyebrow">{e(localized("INTERACTIVE ANATOMY"))}</span><h1>Body Verse<span class="brand-period">.</span></h1><p>{e(localized("Explore the human body"))}</p></section>
+    <section class="body-verse-explorer" aria-label="{e(localized("Interactive anatomy explorer"))}">
+      <div class="body-verse-main">
+        <div class="body-verse-toolbar"><div class="body-layer-tabs" role="group" aria-label="{e(localized("Body layers"))}">{layer_buttons}</div><div class="body-zoom-tools" role="group" aria-label="{e(localized("Model controls"))}"><button type="button" class="body-zoom-button" data-zoom="out" aria-label="{e(localized("Zoom out"))}">−</button><button type="button" class="body-zoom-button" data-zoom="in" aria-label="{e(localized("Zoom in"))}">＋</button><button type="button" class="body-zoom-reset" data-zoom="reset">{e(localized("Reset view"))}</button></div></div>
+        <div class="body-verse-stage" data-body-stage>
+          <div class="body-verse-model" data-body-model>{svg}</div>
+          <div class="body-stage-caption"><span class="stage-orbit">↻</span><span>{e(localized("Drag the model to rotate"))}<small>{e(localized("Choose a highlighted structure for details"))}</small></span></div>
+          <span class="stage-badge">{e(localized("3D-style learning model"))}</span>
+        </div>
+      </div>
+      <aside class="body-verse-side-panel" aria-label="{e(localized("Selected anatomy details"))}">
+        <div class="body-detail-card" aria-live="polite">
+          <span class="eyebrow" data-detail-system>{e(initial_values["system"])}</span>
+          <h2 data-detail-name>{e(initial_values["name"])}</h2>
+          <div class="body-detail-section"><span class="body-detail-icon">✳</span><div><h3>{e(localized("What it does"))}</h3><p data-detail-function>{e(initial_values["summary"])}</p></div></div>
+          <div class="body-detail-fact"><span class="eyebrow">{e(localized("LEARN A LITTLE MORE"))}</span><p data-detail-fact>{e(initial_values["fact"])}</p></div>
+        </div>
+        <div class="body-part-navigation"><span class="eyebrow">{e(localized("EXPLORE THIS LAYER"))}</span>{part_panel}</div>
+      </aside>
+    </section>
+    {notice("Anatomy for learning.", "Body Verse uses simplified educational illustrations, not a medical atlas. Parts are not to scale and the model cannot diagnose or guide treatment.")}
+    <script src="/static/body-verse.js" defer></script>"""
+    return layout(
+        "Body Verse",
+        content,
+        "study",
+        language,
+        current_url,
+        extra_styles='<link rel="stylesheet" href="/static/body-verse.css">',
+    )
+
+
 def disease_comparison_page(first="", second="", left=None, right=None, error=None, language="en", current_url="/"):
     left = translations.localize_comparison(left, language)
     right = translations.localize_comparison(right, language)
@@ -415,7 +517,7 @@ def study_page(diseases, greeting, response=None, question=None, selected=None, 
         question_form = f'<div class="quiz-card"><span class="eyebrow">{e(question["subject"])} · {e(practice_label)}</span><h2>{e(question["question"])}</h2><form action="/study/answer/{e(question["id"])}" method="post" class="answer-form">{options}<button class="button button-dark" type="submit">Check answer</button></form>{feedback}<a class="button button-outline next-question" href="/study/question?after={quote(question["id"], safe="")}">Next question →</a></div>'
         content = f'<section class="simple-hero"><span class="eyebrow">PRACTICE, AT YOUR PACE</span><h1>One question at a time<span class="brand-period">.</span></h1><p>Original introductory examples. Check your reasoning with each explanation.</p></section><section class="practice-layout">{question_form}{bot}</section>{notice("Original practice only.", "These introductory questions are not official NEET, MCAT, or AAMC exam items and do not represent the full syllabus.")}'
     else:
-        intro = '<section class="study-intro"><div><span class="eyebrow">A GENTLER WAY TO LEARN</span><h1>Welcome to your<br><span>study room.</span></h1><p>Short reviews, original practice, and a small study companion—no pressure, just a little more understanding.</p><div class="study-actions"><a class="button button-dark" href="/study/question">Try a practice question →</a><a class="button button-outline" href="/study/mind-map">Generate a mind map</a><a class="button button-outline" href="/study/flashcards">Smart flashcards</a><a class="button button-outline" href="/study/compare">Compare diseases</a></div></div><div class="study-illustration" aria-hidden="true"><span class="study-plant">✳</span><span class="study-book">✎</span><span class="study-underline"></span></div></section>'
+        intro = '<section class="study-intro"><div><span class="eyebrow">A GENTLER WAY TO LEARN</span><h1>Welcome to your<br><span>study room.</span></h1><p>Short reviews, original practice, and a small study companion—no pressure, just a little more understanding.</p><div class="study-actions"><a class="button button-dark" href="/study/question">Try a practice question →</a><a class="button button-outline" href="/study/body-verse">Explore Body Verse →</a><a class="button button-outline" href="/study/mind-map">Generate a mind map</a><a class="button button-outline" href="/study/flashcards">Smart flashcards</a><a class="button button-outline" href="/study/compare">Compare diseases</a></div></div><div class="study-illustration" aria-hidden="true"><span class="study-plant">✳</span><span class="study-book">✎</span><span class="study-underline"></span></div></section>'
         main = f'<section class="study-content study-home"><div><div class="section-heading"><div><span class="eyebrow">YOUR TOPICS</span><h2>Choose what to review</h2><p>Essentials from each health guide.</p></div></div><div class="study-grid">{lesson_cards}</div><div class="exam-panel"><span class="eyebrow">EXAM STARTERS</span><h2>Preparing for an exam?</h2><p>Ask the study buddy about NEET, MCAT, or AAMC. For current exam details and syllabi, check the official provider.</p>{exam_links}</div></div>{bot}</section>{notice("Study, not a substitute.", "Study buddy replies are for education, not personal diagnosis or treatment. For your own symptoms or care, consult a qualified health professional.")}'
         content = intro + main
     content += '<script src="/static/voice-tutor.js" defer></script>'

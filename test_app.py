@@ -3,11 +3,13 @@ from io import BytesIO
 import base64
 import json
 import os
+import re
 from urllib.error import HTTPError
 from unittest.mock import patch
 from urllib.parse import quote_plus
 
 import app as wellnote_app
+import body_verse
 from app import COOKIE_NAME, LANGUAGE_COOKIE_NAME, application
 from medlineplus import search_medlineplus
 from study import EXAM_GUIDES, QUESTIONS, ai_provider_configured, generate_ai_response, make_response, next_question_id
@@ -122,6 +124,54 @@ class MedicalAppTests(unittest.TestCase):
         self.assertIn("बीमारियों की तुलना", compared)
         self.assertIn("एक दीर्घकालिक स्थिति", compared)
         self.assertIn("टाइप 2 मधुमेह", compared)
+
+    def test_body_verse_has_clickable_details_for_each_anatomy_layer(self):
+        page = request("/study/body-verse")
+        self.assertTrue(page["status"].startswith("200"))
+        for expected in (
+            "Body Verse",
+            "Explore the human body",
+            'class="body-verse-side-panel"',
+            "What it does",
+            'data-detail-fact',
+            'href="/static/body-verse.css"',
+        ):
+            self.assertIn(expected, page["body"])
+        self.assertIn('href="/study/body-verse"', request("/study")["body"])
+        rendered_layers = re.findall(
+            r'<button[^>]+data-body-layer="([^"]+)"',
+            page["body"],
+        )
+        self.assertEqual(rendered_layers, list(body_verse.LAYERS))
+        for layer in body_verse.LAYERS.values():
+            for part in layer["parts"]:
+                with self.subTest(part=part["id"]):
+                    self.assertIn(f'data-anatomy-id="{part["id"]}"', page["body"])
+                    self.assertIn(part["id"], body_verse.SHAPES)
+
+        script = request("/static/body-verse.js")
+        self.assertTrue(script["status"].startswith("200"))
+        self.assertIn("pointermove", script["body"])
+        self.assertIn("data-detail-function", page["body"])
+        self.assertTrue(request("/static/body-verse.css")["status"].startswith("200"))
+
+    def test_body_verse_localizes_layer_details_in_hindi_and_hinglish(self):
+        cases = (
+            ("hi", "मानव शरीर को जानें", "महाधमनी", "फुफ्फुसीय शिराएँ",
+             "हृदय एक मांसपेशीय पंप है"),
+            ("hinglish", "Insaani body ko explore karein", "Aorta",
+             "Pulmonary veins", "Heart ek muscular pump hai"),
+        )
+        for language, title, artery, vein, heart_function in cases:
+            with self.subTest(language=language):
+                page = request(
+                    "/study/body-verse",
+                    cookie=f"{LANGUAGE_COOKIE_NAME}={language}",
+                )["body"]
+                self.assertIn(title, page)
+                self.assertIn(artery, page)
+                self.assertIn(vein, page)
+                self.assertIn(heart_function, page)
 
     def test_hindi_and_hinglish_localize_quiz_and_flashcards(self):
         cases = (

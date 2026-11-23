@@ -150,6 +150,8 @@ def application(environ, start_response):
         "/static/style.css": ("style.css", "text/css; charset=utf-8"),
         "/static/language.css": ("language.css", "text/css; charset=utf-8"),
         "/static/voice-tutor.js": ("voice-tutor.js", "text/javascript; charset=utf-8"),
+        "/static/body-verse.css": ("body-verse.css", "text/css; charset=utf-8"),
+        "/static/body-verse.js": ("body-verse.js", "text/javascript; charset=utf-8"),
     }
     if method == "GET" and path in static_assets:
         filename, content_type = static_assets[path]
@@ -360,6 +362,10 @@ def application(environ, start_response):
     if path == "/saved":
         return respond(start_response, HTTPStatus.OK, templates.saved_page(
             saved_page_items(saved),
+            language=language, current_url=current_url,
+        ))
+    if path == "/study/body-verse":
+        return respond(start_response, HTTPStatus.OK, templates.body_verse_page(
             language=language, current_url=current_url,
         ))
     if path == "/study/mind-map":

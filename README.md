@@ -111,6 +111,9 @@ for clearer pronunciation. Tutor questions are entered as text.
   with revealable answers and URL-based next/previous navigation.
 - Side-by-side comparison for two typed health topics, using reviewed WellNote
   guides or MedlinePlus references and marking unavailable details clearly.
+- Body Verse, an interactive, rotatable and zoomable anatomy learning model
+  with selectable organs, arteries and veins, muscles, and a final skeleton
+  layer. Each selection shows its system, function, and a learning fact.
 - An English/Hindi/Hinglish language switcher. The interface, reviewed starter
   guides, and built-in practice questions are available in Hindi and
   Roman-script Hinglish. MedlinePlus excerpts retain their source wording;
