@@ -136,7 +136,7 @@ class MedicalAppTests(unittest.TestCase):
             'data-detail-fact',
             'href="/static/body-verse.css"',
             'type="importmap"',
-            'type="module" src="/static/body-verse.js?v=20261124-white-sketchfab-ui"',
+            'type="module" src="/static/body-verse.js?v=20261124-original-sketchfab-ui"',
             "OrbitControls",
             "FBXLoader",
             "Raycaster",
