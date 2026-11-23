@@ -12,6 +12,8 @@ def e(value):
 
 
 def layout(title, content, active="home", language="en", current_url="/"):
+    import study
+
     title = translations.translate(title, language)
     content = translations.translate_markup(content, language)
     links = [("home", "/", "Explore"), ("study", "/study", "Study room"), ("saved", "/saved", "Saved")]
@@ -37,14 +39,23 @@ def layout(title, content, active="home", language="en", current_url="/"):
     voice_messages = {
         "voice_unsupported": "Spoken answers are not supported in this browser.",
         "voice_ask_first": "Ask a question first, then your answer can be read aloud.",
+        "voice_loading": "Checking for the right speech voice…",
+        "voice_missing": "Install a {language} speech voice in your device’s language or speech settings, then try again.",
+        "voice_cloud_loading": "Creating speech with Gemini…",
         "voice_reading": "Reading the answer aloud.",
         "voice_finished": "Finished reading the answer.",
         "voice_error": "Audio playback stopped or is unavailable.",
         "voice_stopped": "Audio stopped.",
+        "voice_english_name": "English",
+        "voice_hindi_name": "Hindi",
+        "voice_hinglish_name": "Hindi for Hinglish",
     }
     voice_data = " ".join(
         f'data-{name.replace("_", "-")}="{e(translations.translate(message, language))}"'
         for name, message in voice_messages.items()
+    )
+    voice_data += (
+        f' data-voice-gemini-enabled="{str(study.gemini_speech_configured()).lower()}"'
     )
     return f"""<!doctype html><html lang="{e(html_language)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#f5f6ef"><title>{e(title)} · WellNote</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="/static/style.css"><link rel="stylesheet" href="/static/language.css"></head><body {voice_data}><header class="site-header"><a class="brand" href="/"><span class="brand-mark">w</span><span>WellNote<span class="brand-period">.</span></span></a><nav class="main-nav" aria-label="{e(translations.translate("Main navigation", language))}">{nav}</nav>{switcher}<span class="header-note"><span class="status-dot"></span>{e(translations.translate("A calmer way to learn", language))}</span></header><main>{content}</main><footer class="site-footer"><a class="brand footer-brand" href="/"><span class="brand-mark">w</span><span>WellNote<span class="brand-period">.</span></span></a><p>{e(translations.translate("Clearer health learning, one topic at a time.", language))}</p>{translation_note}<p class="footer-disclaimer">{e(translations.translate("For education only · Not a substitute for professional medical advice", language))}</p></footer></body></html>"""
 
@@ -370,8 +381,8 @@ def study_page(diseases, greeting, response=None, question=None, selected=None, 
         if study.ai_provider_configured()
         else
         "No AI model is configured in this app, so replies use curated local study "
-        "content. Set WELLNOTE_AI_API_KEY and WELLNOTE_AI_MODEL as described in "
-        "README.md for general model-generated answers. For personal medical "
+        "content. To use Gemini, set GEMINI_API_KEY; the default model is "
+        "gemini-2.5-flash. For other providers, see README.md. For personal medical "
         "concerns, consult a qualified health professional."
     )
     lesson_cards = "".join(
@@ -387,7 +398,11 @@ def study_page(diseases, greeting, response=None, question=None, selected=None, 
         response_html = "<div class='chat-bubble reply'><span class='reply-label'>Study buddy</span>" + study_response_html(response) + "</div>"
     user_message = f"<div class='chat-bubble user-prompt'><span class='reply-label'>You asked</span><p>{e(prompt)}</p></div>" if prompt else ""
     voice_tools = """<div class="voice-tools"><button class="button button-outline" id="voice-read" type="button">Read answer aloud</button><button class="button button-outline" id="voice-stop" type="button">Stop audio</button></div><p class="voice-status" id="voice-status" role="status" aria-live="polite">Select Read answer aloud to hear the study buddy response.</p>"""
-    bot = f"""<section class="tutor-card"><div class="tutor-heading"><span class="bot-avatar">✳</span><div><strong>Your study buddy</strong><small>Ready when you are</small></div><span class="online-dot"></span></div><div class="chat-bubble"><p>{e(greeting)}</p></div>{user_message}{response_html}<p class="tutor-hint">Try: “Help me plan for NEET”, “Explain biology”, “Help with homework”, or “Give me a study strategy.”</p><form action="/study/ask" method="post" class="prompt-form"><label class="sr-only" for="study-prompt">Ask a study question</label><textarea id="study-prompt" name="prompt" rows="3" placeholder="Ask a study question…"></textarea><button class="button button-dark" type="submit">Send <span>→</span></button></form>{voice_tools}<p class="scope-note">{e(provider_note)}</p><p class="scope-note">Confirm exam requirements with official sources.</p>{exam_links}</section>"""
+    voice_privacy_note = (
+        f'<p class="scope-note">{e(translations.translate("If no matching device voice is installed, Read aloud sends the reply text to Google Gemini to create audio.", language))}</p>'
+        if study.gemini_speech_configured() else ""
+    )
+    bot = f"""<section class="tutor-card"><div class="tutor-heading"><span class="bot-avatar">✳</span><div><strong>Your study buddy</strong><small>Ready when you are</small></div><span class="online-dot"></span></div><div class="chat-bubble"><p>{e(greeting)}</p></div>{user_message}{response_html}<p class="tutor-hint">Try: “Help me plan for NEET”, “Explain biology”, “Help with homework”, or “Give me a study strategy.”</p><form action="/study/ask" method="post" class="prompt-form"><label class="sr-only" for="study-prompt">Ask a study question</label><textarea id="study-prompt" name="prompt" rows="3" placeholder="Ask a study question…"></textarea><button class="button button-dark" type="submit">Send <span>→</span></button></form>{voice_tools}{voice_privacy_note}<p class="scope-note">{e(provider_note)}</p><p class="scope-note">Confirm exam requirements with official sources.</p>{exam_links}</section>"""
     if selected:
         intro = f'<section class="simple-hero"><a class="back-link" href="/study">← Study room</a><span class="eyebrow">{e(translations.translate("FOCUSED REVIEW", language))} · {e(selected["category"])}</span><h1>{e(selected["name"])}<span class="brand-period">.</span></h1><p>Take a moment with the essentials, then revisit the full guide when you’re ready.</p></section>'
         points = "".join(f'<li class="study-point"><span class="point-number">{index:02d}</span><p>{e(point)}</p></li>' for index, point in enumerate(selected["study_points"], 1))

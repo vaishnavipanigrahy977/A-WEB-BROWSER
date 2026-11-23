@@ -31,26 +31,44 @@ so the local command above remains unchanged.
 
 The app does not bundle an AI model or API key. Without provider credentials,
 the study buddy uses its curated local education answers and references. To
-enable general model-generated replies, configure a provider that implements
-the OpenAI-compatible `POST /v1/chat/completions` API, then restart the app.
-The key is read from the environment and must not be committed to the repository.
+enable general model-generated replies with Gemini, set `GEMINI_API_KEY` and
+restart the app. It uses Gemini's OpenAI-compatible chat-completions endpoint
+and defaults to `gemini-2.5-flash`; optionally set `GEMINI_MODEL` to select
+another available Gemini model. The key is read from the environment and must
+not be committed to the repository.
 
 PowerShell:
 
 ```powershell
-$env:WELLNOTE_AI_API_KEY = "your-provider-key"
-$env:WELLNOTE_AI_MODEL = "your-model-name"
-# Optional for a compatible provider other than the default endpoint:
-$env:WELLNOTE_AI_BASE_URL = "https://your-provider.example/v1"
+$env:GEMINI_API_KEY = "your-gemini-api-key"
+# Optional model overrides:
+$env:GEMINI_MODEL = "gemini-2.5-flash"
+$env:GEMINI_TTS_MODEL = "gemini-3.8-flash-tts"
 python app.py
 ```
 
 POSIX shell:
 
 ```sh
+export GEMINI_API_KEY="your-gemini-api-key"
+export GEMINI_MODEL="gemini-2.5-flash"
+export GEMINI_TTS_MODEL="gemini-3.8-flash-tts"
+python app.py
+```
+
+For another OpenAI-compatible provider, configure `WELLNOTE_AI_API_KEY`,
+`WELLNOTE_AI_MODEL`, and optionally `WELLNOTE_AI_BASE_URL`:
+
+```powershell
+$env:WELLNOTE_AI_API_KEY = "your-provider-key"
+$env:WELLNOTE_AI_MODEL = "your-model-name"
+$env:WELLNOTE_AI_BASE_URL = "https://your-provider.example/v1"
+python app.py
+```
+
+```sh
 export WELLNOTE_AI_API_KEY="your-provider-key"
 export WELLNOTE_AI_MODEL="your-model-name"
-# Optional for a compatible provider other than the default endpoint:
 export WELLNOTE_AI_BASE_URL="https://your-provider.example/v1"
 python app.py
 ```
@@ -61,9 +79,14 @@ can be incomplete or incorrect. WellNote does not guarantee comprehensive
 world knowledge. Provider errors are shown in the study buddy instead of being
 silently replaced with a canned answer.
 
-The study room's read-aloud controls use the browser's speech-synthesis feature.
-Availability and voice selection depend on the browser and its settings. Tutor
-questions are entered as text.
+The study room's read-aloud controls use the browser's speech-synthesis feature
+and select a voice matching the current language. Hindi and Hinglish playback uses a matching installed device voice when
+available. If no matching voice exists and `GEMINI_API_KEY` is configured,
+WellNote can generate audio with Gemini TTS (`GEMINI_TTS_MODEL`, default
+`gemini-3.8-flash-tts`) instead of silently using an English voice. In that
+fallback, the study-buddy reply text is sent to Google's Gemini API to create
+audio. Hinglish playback converts common Romanized Hindi words to Devanagari
+for clearer pronunciation. Tutor questions are entered as text.
 
 ## What's included
 

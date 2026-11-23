@@ -1,5 +1,6 @@
 import unittest
 from io import BytesIO
+import base64
 import json
 import os
 from urllib.error import HTTPError
@@ -413,6 +414,13 @@ class MedicalAppTests(unittest.TestCase):
         script = request("/static/voice-tutor.js")
         self.assertTrue(script["status"].startswith("200"))
         self.assertIn("SpeechSynthesisUtterance", script["body"])
+        self.assertIn('"hi-Latn": ["hi-IN", "hi", "en-IN"]', script["body"])
+        self.assertIn("utterance.voice = voice", script["body"])
+        self.assertIn("matchingVoice(await availableVoices())", script["body"])
+        self.assertIn('fetch("/study/speak"', script["body"])
+        self.assertIn("if (!browserSpeechAvailable)", script["body"])
+        self.assertIn("voiceGeminiEnabled", script["body"])
+        self.assertIn('samjhayein: "समझाएँ"', script["body"])
         self.assertNotIn("SpeechRecognition", script["body"])
 
         result = request(
@@ -422,6 +430,20 @@ class MedicalAppTests(unittest.TestCase):
         self.assertIn("mitochondrion", result["body"].casefold())
         self.assertIn("step by step", make_response("Help me with homework"))
         self.assertIn("personal symptoms", make_response("I have a symptom"))
+
+    def test_voice_status_explains_when_a_matching_localized_voice_is_missing(self):
+        for language, phrase in (
+            ("hi", "इस डिवाइस में"),
+            ("hinglish", "Is device par"),
+        ):
+            body = request(
+                "/study",
+                cookie=f"{LANGUAGE_COOKIE_NAME}={language}",
+            )["body"]
+            with self.subTest(language=language):
+                self.assertIn("data-voice-missing=", body)
+                self.assertIn(phrase, body)
+                self.assertIn("data-voice-hindi-name=", body)
 
     def test_mind_map_picker_and_reviewed_topic_map(self):
         picker = request("/study/mind-map")
@@ -782,6 +804,133 @@ class MedicalAppTests(unittest.TestCase):
             "Hindi written in Devanagari",
             hindi_payload["messages"][0]["content"],
         )
+
+    def test_gemini_api_key_configures_native_gemini_chat_endpoint(self):
+        response_body = json.dumps({
+            "choices": [{"message": {"content": "Gemini study answer"}}]
+        }).encode()
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def read(self, _limit):
+                return response_body
+
+        captured = {}
+
+        def fake_urlopen(request, timeout):
+            captured["url"] = request.full_url
+            captured["headers"] = request.headers
+            captured["payload"] = json.loads(request.data.decode())
+            return FakeResponse()
+
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-gemini-key"}, clear=True):
+            self.assertTrue(ai_provider_configured())
+            with patch("study.urlopen", side_effect=fake_urlopen):
+                answer = generate_ai_response("Explain photosynthesis")
+
+        self.assertEqual(answer, "Gemini study answer")
+        self.assertEqual(
+            captured["url"],
+            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+        )
+        self.assertEqual(captured["payload"]["model"], "gemini-2.5-flash")
+        self.assertEqual(
+            captured["headers"]["Authorization"],
+            "Bearer test-gemini-key",
+        )
+
+    def test_gemini_speech_returns_wav_and_uses_the_requested_language_style(self):
+        response_body = json.dumps({
+            "output_audio": {"data": base64.b64encode(b"RIFF-test-audio").decode()},
+        }).encode()
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def read(self, _limit):
+                return response_body
+
+        captured = {}
+
+        def fake_urlopen(request, timeout):
+            captured["url"] = request.full_url
+            captured["headers"] = request.headers
+            captured["payload"] = json.loads(request.data.decode())
+            return FakeResponse()
+
+        with patch.dict(
+            os.environ,
+            {"GEMINI_API_KEY": "test-gemini-key"},
+            clear=True,
+        ):
+            with patch("study.urlopen", side_effect=fake_urlopen):
+                audio = wellnote_app.study.generate_gemini_speech(
+                    "नमस्ते, जवाब सुनें।",
+                    "hi",
+                )
+
+        self.assertEqual(audio, b"RIFF-test-audio")
+        self.assertEqual(
+            captured["url"],
+            "https://generativelanguage.googleapis.com/v1beta/interactions",
+        )
+        self.assertEqual(captured["headers"]["X-goog-api-key"], "test-gemini-key")
+        self.assertEqual(captured["payload"]["model"], "gemini-3.8-flash-tts")
+        self.assertIn(
+            "Hindi (India) accent",
+            captured["payload"]["input"][0]["content"][0]["annotations"][0]["style"],
+        )
+
+    def test_gemini_speech_endpoint_returns_audio_and_validates_requests(self):
+        with patch(
+            "app.study.generate_gemini_speech",
+            return_value=b"RIFF-test-audio",
+        ) as generate:
+            response = request(
+                "/study/speak",
+                method="POST",
+                form=json.dumps({"text": "namaste", "language": "hinglish"}),
+            )
+        self.assertTrue(response["status"].startswith("200"))
+        self.assertEqual(response["headers"]["Content-Type"], "audio/wav")
+        self.assertEqual(response["body"], "RIFF-test-audio")
+        generate.assert_called_once_with("namaste", "hinglish")
+
+        too_long = request(
+            "/study/speak",
+            method="POST",
+            form=json.dumps({"text": "x" * 5001, "language": "hi"}),
+        )
+        self.assertTrue(too_long["status"].startswith("400"))
+
+    def test_gemini_speech_endpoint_requires_a_gemini_api_key(self):
+        with patch.dict(os.environ, {}, clear=True):
+            response = request(
+                "/study/speak",
+                method="POST",
+                form=json.dumps({"text": "namaste", "language": "hi"}),
+            )
+        self.assertTrue(response["status"].startswith("503"))
+        self.assertIn("Gemini speech is not configured", response["body"])
+
+    def test_gemini_key_enables_transparently_disclosed_speech_fallback(self):
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}, clear=True):
+            page = request(
+                "/study",
+                cookie=f"{LANGUAGE_COOKIE_NAME}=hi",
+            )["body"]
+        self.assertIn('data-voice-gemini-enabled="true"', page)
+        self.assertIn("जवाब का पाठ ऑडियो बनाने के लिए Google Gemini को भेजा जाएगा", page)
+        self.assertNotIn("इस ऐप में AI मॉडल सेट नहीं है", page)
 
     def test_ai_provider_missing_configuration_uses_safe_local_fallback(self):
         with patch.dict(os.environ, {}, clear=True):

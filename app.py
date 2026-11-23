@@ -3,6 +3,7 @@
 from http import cookies
 from http import HTTPStatus
 import base64
+import json
 import os
 from pathlib import Path
 import re
@@ -159,6 +160,57 @@ def application(environ, start_response):
         )
 
     if method == "POST":
+        if path == "/study/speak":
+            content_length = int(environ.get("CONTENT_LENGTH") or "0")
+            if content_length > 12_000:
+                return respond(
+                    start_response, HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                    "Speech text is too long.",
+                )
+            try:
+                request_data = json.loads(
+                    environ.get("wsgi.input").read(content_length).decode("utf-8")
+                )
+            except (UnicodeDecodeError, ValueError):
+                return respond(
+                    start_response, HTTPStatus.BAD_REQUEST,
+                    "A valid JSON speech request is required.",
+                )
+            if not isinstance(request_data, dict):
+                return respond(
+                    start_response, HTTPStatus.BAD_REQUEST,
+                    "A valid JSON speech request is required.",
+                )
+            text = request_data.get("text")
+            speech_language = request_data.get("language", language)
+            if not isinstance(text, str) or not text.strip() or len(text) > 5000:
+                return respond(
+                    start_response, HTTPStatus.BAD_REQUEST,
+                    "Speech text must contain 1 to 5000 characters.",
+                )
+            if speech_language not in ("en", "hi", "hinglish"):
+                return respond(
+                    start_response, HTTPStatus.BAD_REQUEST,
+                    "Unsupported speech language.",
+                )
+            try:
+                audio = study.generate_gemini_speech(text, speech_language)
+            except study.GeminiSpeechError as exc:
+                return respond(
+                    start_response, HTTPStatus.BAD_GATEWAY, str(exc),
+                )
+            if audio is None:
+                return respond(
+                    start_response, HTTPStatus.SERVICE_UNAVAILABLE,
+                    "Gemini speech is not configured.",
+                )
+            return respond(
+                start_response,
+                HTTPStatus.OK,
+                audio,
+                [("Cache-Control", "no-store")],
+                content_type="audio/wav",
+            )
         form = parse_qs(environ.get("wsgi.input").read(int(environ.get("CONTENT_LENGTH") or "0")).decode("utf-8", "replace"))
         if path in ("/study/ask", "/study/ask-again"):
             prompt = form.get("prompt", [""])[0]

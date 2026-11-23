@@ -4,6 +4,7 @@ import random
 import re
 import json
 import os
+import base64
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote_plus
 from urllib.request import Request, urlopen
@@ -338,10 +339,127 @@ AI_TIMEOUT_SECONDS = 45
 
 
 def ai_provider_configured():
-    return bool(
-        os.environ.get("WELLNOTE_AI_API_KEY", "").strip()
-        and os.environ.get("WELLNOTE_AI_MODEL", "").strip()
-        and os.environ.get("WELLNOTE_AI_BASE_URL", "https://api.openai.com/v1").strip()
+    return all(_ai_configuration())
+
+
+class GeminiSpeechError(Exception):
+    """A safe, user-facing failure from Gemini text-to-speech."""
+
+
+def gemini_speech_configured():
+    return bool(os.environ.get("GEMINI_API_KEY", "").strip())
+
+
+def generate_gemini_speech(text, language="en"):
+    """Return Gemini's generated WAV bytes, or None when no Gemini key is set."""
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        return None
+    text = text.strip()
+    if not text or len(text) > 5000:
+        raise GeminiSpeechError("Speech text must contain 1 to 5000 characters.")
+
+    speech_styles = {
+        "en": "Speak clearly in a warm, friendly English tutor voice.",
+        "hi": "Speak clearly in natural Hindi with a Hindi (India) accent.",
+        "hinglish": "Speak naturally in conversational Hinglish with a clear Indian accent. Pronounce Hindi words naturally and English terms clearly.",
+    }
+    payload = json.dumps({
+        "model": os.environ.get("GEMINI_TTS_MODEL", "gemini-3.8-flash-tts").strip(),
+        "input": [{
+            "type": "user_input",
+            "content": [{
+                "type": "text",
+                "text": text,
+                "annotations": [{
+                    "type": "speech_metadata",
+                    "style": speech_styles.get(language, speech_styles["en"]),
+                }],
+            }],
+        }],
+        "response_format": {"type": "audio"},
+        "generation_config": {
+            "speech_config": [{"voice": "Kore"}],
+        },
+    }).encode("utf-8")
+    request = Request(
+        "https://generativelanguage.googleapis.com/v1beta/interactions",
+        data=payload,
+        headers={
+            "x-goog-api-key": api_key,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=AI_TIMEOUT_SECONDS) as response:
+            data = json.loads(response.read(15_000_001).decode("utf-8"))
+        output_audio = data.get("output_audio")
+        audio_data = output_audio.get("data") if isinstance(output_audio, dict) else None
+        if not audio_data:
+            audio_data = next(
+                (
+                    content.get("data")
+                    for step in reversed(data.get("steps", []))
+                    if step.get("type") == "model_output"
+                    for content in reversed(step.get("content", []))
+                    if content.get("type") == "audio" and content.get("data")
+                ),
+                None,
+            )
+        if not audio_data:
+            raise GeminiSpeechError("Gemini did not return speech audio.")
+        audio = base64.b64decode(audio_data, validate=True)
+        if len(audio) > 15_000_000 or not audio.startswith(b"RIFF"):
+            raise GeminiSpeechError("Gemini returned audio in an unsupported format.")
+        return audio
+    except HTTPError as exc:
+        status = exc.code
+        exc.close()
+        if status in (401, 403):
+            raise GeminiSpeechError(
+                "Gemini rejected the API key or does not allow this speech model."
+            ) from None
+        if status == 429:
+            raise GeminiSpeechError(
+                "Gemini is rate-limiting speech requests. Please try again later."
+            ) from None
+        raise GeminiSpeechError(
+            f"Gemini speech returned an HTTP {status} error."
+        ) from None
+    except (URLError, TimeoutError, OSError):
+        raise GeminiSpeechError(
+            "Gemini speech could not be reached. Check the connection and try again."
+        ) from None
+    except (AttributeError, KeyError, TypeError, ValueError, UnicodeDecodeError):
+        raise GeminiSpeechError(
+            "Gemini returned an unreadable speech response."
+        ) from None
+
+
+def _ai_configuration():
+    wellnote_key = os.environ.get("WELLNOTE_AI_API_KEY", "").strip()
+    gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if wellnote_key:
+        return (
+            wellnote_key,
+            os.environ.get("WELLNOTE_AI_MODEL", "").strip(),
+            os.environ.get("WELLNOTE_AI_BASE_URL", "https://api.openai.com/v1").strip(),
+        )
+    if gemini_key:
+        return (
+            gemini_key,
+            os.environ.get(
+                "GEMINI_MODEL",
+                os.environ.get("WELLNOTE_AI_MODEL", "gemini-2.5-flash"),
+            ).strip(),
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+        )
+    return (
+        "",
+        os.environ.get("WELLNOTE_AI_MODEL", "").strip(),
+        os.environ.get("WELLNOTE_AI_BASE_URL", "https://api.openai.com/v1").strip(),
     )
 
 
@@ -349,6 +467,8 @@ def _ai_endpoint(base_url):
     base = base_url.rstrip("/")
     if base.endswith("/chat/completions"):
         return base
+    if base.endswith("/openai"):
+        return base + "/chat/completions"
     if base.endswith("/v1"):
         return base + "/chat/completions"
     return base + "/v1/chat/completions"
@@ -361,11 +481,7 @@ def generate_ai_response(prompt, language="en"):
     failures return an explicit user-facing message rather than silently
     pretending that a local canned answer came from a model.
     """
-    api_key = os.environ.get("WELLNOTE_AI_API_KEY", "").strip()
-    model = os.environ.get("WELLNOTE_AI_MODEL", "").strip()
-    base_url = os.environ.get(
-        "WELLNOTE_AI_BASE_URL", "https://api.openai.com/v1"
-    ).strip()
+    api_key, model, base_url = _ai_configuration()
     if not api_key and not model:
         return None
     if not api_key or not model or not base_url:
