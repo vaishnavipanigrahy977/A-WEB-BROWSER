@@ -73,7 +73,8 @@ questions are entered as text.
   Medicine's MedlinePlus health-topics API and show linked, source-attributed
   summaries. If the reference service is unavailable or has no result, the app
   says so and offers MedlinePlus directly instead of inventing details.
-- A saved-topics list stored in a browser cookie.
+- A reading list for reviewed guides and typed MedlinePlus topics, stored in a
+  browser cookie.
 - A study room with rotating greetings, a configurable AI study companion (or
   curated local replies when no AI provider is configured), and spoken answers
   through browser speech features,
@@ -87,6 +88,9 @@ questions are entered as text.
   with revealable answers and URL-based next/previous navigation.
 - Side-by-side comparison for two typed health topics, using reviewed Wellnote
   guides or MedlinePlus references and marking unavailable details clearly.
+- An English/Hindi/Hinglish language switcher. The reviewed starter disease
+  guides and core interface are available in Hindi and Roman-script Hinglish;
+  external references and some study content may remain in English.
 - NEET, MCAT, and AAMC study prompts that point learners toward official
   information; the app does not reproduce official exam questions.
 - Responsive styling, accessible form labels, and medical-learning disclaimers.

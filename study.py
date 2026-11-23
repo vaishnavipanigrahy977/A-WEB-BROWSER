@@ -276,6 +276,7 @@ def compare_health_topic(topic, disease=None, reference=None, reference_error=No
     if disease:
         return {
             "name": disease["name"],
+            "slug": disease["slug"],
             "overview": [disease["summary"], disease["description"]],
             "symptoms": disease["symptoms"],
             "prevention": disease["prevention"],

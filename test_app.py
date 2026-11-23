@@ -7,7 +7,7 @@ from unittest.mock import patch
 from urllib.parse import quote_plus
 
 import app as wellnote_app
-from app import COOKIE_NAME, application
+from app import COOKIE_NAME, LANGUAGE_COOKIE_NAME, application
 from medlineplus import search_medlineplus
 from study import EXAM_GUIDES, QUESTIONS, ai_provider_configured, generate_ai_response, make_response, next_question_id
 
@@ -50,6 +50,158 @@ class MedicalAppTests(unittest.TestCase):
         self.assertNotIn("Type 2 diabetes</h3>", result["body"])
         self.assertIn("&lt;script&gt;", request(query="q=%3Cscript%3E")["body"])
 
+    def test_hindi_language_switcher_localizes_guides_and_remembers_choice(self):
+        english = request("/disease/asthma")
+        self.assertIn('href="/language?lang=hi&amp;next=%2Fdisease%2Fasthma"', english["body"])
+
+        switched = request(
+            "/language",
+            query="lang=hi&next=%2Fdisease%2Fasthma",
+        )
+        self.assertTrue(switched["status"].startswith("303"))
+        self.assertEqual(switched["headers"]["Location"], "/disease/asthma")
+        language_cookie = switched["headers"]["Set-Cookie"]
+        self.assertIn(f"{LANGUAGE_COOKIE_NAME}=hi", language_cookie)
+
+        hindi = request("/disease/asthma", cookie=f"{LANGUAGE_COOKIE_NAME}=hi")
+        for expected in ('<html lang="hi">', "अस्थमा (दमा)", "सामान्य लक्षण",
+                         "साँस में घरघराहट", "रोकथाम और जोखिम में कमी",
+                         "चिकित्सकीय सलाह का विकल्प नहीं", "English"):
+            self.assertIn(expected, hindi["body"])
+        self.assertIn("National Heart, Lung, and Blood Institute", hindi["body"])
+        hindi_diabetes = request(
+            "/disease/type-2-diabetes", cookie=f"{LANGUAGE_COOKIE_NAME}=hi"
+        )["body"]
+        self.assertIn("Centers for Disease Control and Prevention", hindi_diabetes)
+        self.assertNotIn("Centers for Disease Control and रोकथाम", hindi_diabetes)
+
+        hindi_search = request(query="q=टाइप+2+मधुमेह", cookie=f"{LANGUAGE_COOKIE_NAME}=hi")
+        self.assertIn("टाइप 2 मधुमेह", hindi_search["body"])
+
+    def test_language_switcher_rejects_unsupported_and_external_redirects(self):
+        unsupported = request("/language", query="lang=fr")
+        self.assertTrue(unsupported["status"].startswith("400"))
+
+        switched = request(
+            "/language",
+            query="lang=hi&next=https%3A%2F%2Fexample.com",
+        )
+        self.assertEqual(switched["headers"]["Location"], "/")
+        back_to_english = request(
+            "/language",
+            query="lang=en&next=%2Fdisease%2Fasthma",
+        )
+        self.assertIn(f"{LANGUAGE_COOKIE_NAME}=en", back_to_english["headers"]["Set-Cookie"])
+
+    def test_hindi_switch_applies_to_study_tools_and_comparison(self):
+        language_cookie = f"{LANGUAGE_COOKIE_NAME}=hi"
+        study_home = request("/study", cookie=language_cookie)["body"]
+        self.assertIn("अध्ययन कक्ष", study_home)
+        self.assertIn("अभ्यास प्रश्न हल करें", study_home)
+
+        mind_map = request(
+            "/study/mind-map", query="topic=asthma", cookie=language_cookie
+        )["body"]
+        self.assertIn("माइंड मैप जनरेटर", mind_map)
+        self.assertIn("साँस में घरघराहट", mind_map)
+
+        flashcards = request(
+            "/study/flashcards", query="topic=asthma", cookie=language_cookie
+        )["body"]
+        self.assertIn("स्मार्ट फ्लैशकार्ड", flashcards)
+        self.assertIn("अस्थमा (दमा)", flashcards)
+
+        compared = request(
+            "/study/compare",
+            query="first=asthma&second=type-2-diabetes",
+            cookie=language_cookie,
+        )["body"]
+        self.assertIn("बीमारियों की तुलना", compared)
+        self.assertIn("एक दीर्घकालिक स्थिति", compared)
+        self.assertIn("टाइप 2 मधुमेह", compared)
+
+    def test_save_and_remove_topic_work_from_hindi_interface(self):
+        language_cookie = f"{LANGUAGE_COOKIE_NAME}=hi"
+        detail = request(
+            "/disease/type-2-diabetes", cookie=language_cookie
+        )["body"]
+        self.assertIn("＋ बाद के लिए सहेजें", detail)
+
+        saved = request(
+            "/saved/add/type-2-diabetes",
+            method="POST",
+            cookie=language_cookie,
+        )
+        self.assertTrue(saved["status"].startswith("303"))
+        self.assertEqual(saved["headers"]["Location"], "/saved")
+        self.assertIn(f"{COOKIE_NAME}=type-2-diabetes", saved["headers"]["Set-Cookie"])
+
+        saved_page = request(
+            "/saved",
+            cookie=f"{language_cookie}; {COOKIE_NAME}=type-2-diabetes",
+        )["body"]
+        self.assertIn("टाइप 2 मधुमेह", saved_page)
+        self.assertIn("सहेजे गए विषय", saved_page)
+
+        removed = request(
+            "/saved/remove/type-2-diabetes",
+            method="POST",
+            cookie=f"{language_cookie}; {COOKIE_NAME}=type-2-diabetes",
+        )
+        self.assertTrue(removed["status"].startswith("303"))
+        self.assertIn(f"{COOKIE_NAME}=", removed["headers"]["Set-Cookie"])
+
+    def test_topic_card_plus_adds_to_reading_list_in_hindi_and_hinglish(self):
+        for language, translated_name in (
+            ("en", "Asthma"),
+            ("hi", "अस्थमा (दमा)"),
+            ("hinglish", "Asthma (Dama)"),
+        ):
+            language_cookie = f"{LANGUAGE_COOKIE_NAME}={language}"
+            home = request("/", cookie=language_cookie)["body"]
+            self.assertIn(f'action="/saved/add/asthma" method="post"', home)
+            self.assertIn("Save to library" if language == "en" else (
+                "लाइब्रेरी में सहेजें" if language == "hi" else "Library mein save karein"
+            ), home)
+
+            added = request(
+                "/saved/add/asthma",
+                method="POST",
+                cookie=language_cookie,
+            )
+            self.assertTrue(added["status"].startswith("303"))
+            self.assertEqual(added["headers"]["Location"], "/saved")
+            saved_page = request(
+                "/saved",
+                cookie=f"{language_cookie}; {COOKIE_NAME}=asthma",
+            )["body"]
+            self.assertIn(translated_name, saved_page)
+            self.assertIn("♥", saved_page)
+
+    def test_hinglish_switcher_uses_roman_script_and_finds_local_guides(self):
+        switched = request(
+            "/language",
+            query="lang=hinglish&next=%2Fdisease%2Fasthma",
+        )
+        self.assertIn(f"{LANGUAGE_COOKIE_NAME}=hinglish", switched["headers"]["Set-Cookie"])
+
+        page = request(
+            "/disease/asthma",
+            cookie=f"{LANGUAGE_COOKIE_NAME}=hinglish",
+        )["body"]
+        self.assertIn('<html lang="hi-Latn">', page)
+        self.assertIn("Asthma (Dama)", page)
+        self.assertIn("Baad ke liye save karein", page)
+        self.assertIn("Saans mein ghargharahat", page)
+        self.assertNotIn("साँस में घरघराहट", page)
+
+        local_topic = request(
+            "/study/flashcards",
+            query="topic=Asthma+%28Dama%29&card=1",
+            cookie=f"{LANGUAGE_COOKIE_NAME}=hinglish",
+        )
+        self.assertIn("Saans mein ghargharahat", local_topic["body"])
+
     def test_unknown_disease_search_and_detail_link_to_medlineplus(self):
         medlineplus_result = [{
             "title": "Malaria",
@@ -67,6 +219,60 @@ class MedicalAppTests(unittest.TestCase):
         self.assertTrue(detail["status"].startswith("200"))
         self.assertIn("This condition is not in Wellnote", detail["body"])
         self.assertNotIn("Common symptoms", detail["body"])
+
+    def test_external_disease_search_can_be_saved_and_removed_from_reading_list(self):
+        malaria = {
+            "title": "Malaria",
+            "summary": "Malaria is caused by parasites.",
+            "url": "https://medlineplus.gov/malaria.html",
+        }
+        with patch("app.search_medlineplus", return_value=([malaria], None)):
+            search = request(query="q=malaria", cookie=f"{LANGUAGE_COOKIE_NAME}=hi")
+        self.assertIn('action="/saved/add-topic" method="post"', search["body"])
+        self.assertIn('name="topic" value="Malaria"', search["body"])
+
+        added = request(
+            "/saved/add-topic",
+            method="POST",
+            cookie=f"{LANGUAGE_COOKIE_NAME}=hi",
+            form="topic=Malaria",
+        )
+        self.assertTrue(added["status"].startswith("303"))
+        self.assertEqual(added["headers"]["Location"], "/saved")
+        token = wellnote_app.external_saved_token("Malaria")
+        saved_page = request(
+            "/saved",
+            cookie=f"{LANGUAGE_COOKIE_NAME}=hi; {COOKIE_NAME}={token}",
+        )["body"]
+        self.assertIn("Malaria", saved_page)
+        self.assertIn("सहेजा गया स्वास्थ्य विषय", saved_page)
+        self.assertIn('/saved/remove-topic', saved_page)
+
+        removed = request(
+            "/saved/remove-topic",
+            method="POST",
+            cookie=f"{LANGUAGE_COOKIE_NAME}=hi; {COOKIE_NAME}={token}",
+            form="topic=Malaria",
+        )
+        self.assertTrue(removed["status"].startswith("303"))
+        empty_page = request(
+            "/saved",
+            cookie=f"{LANGUAGE_COOKIE_NAME}=hi; {COOKIE_NAME}=",
+        )["body"]
+        self.assertIn("आपकी लाइब्रेरी तैयार है", empty_page)
+
+    def test_external_mind_map_and_flashcard_topics_can_be_saved(self):
+        article = {
+            "title": "Dyslexia",
+            "summary": "Dyslexia can affect reading and writing.",
+            "url": "https://medlineplus.gov/learningdisabilities.html",
+        }
+        with patch("app.search_medlineplus", return_value=([article], None)):
+            mind_map = request("/study/mind-map", query="topic=dyslexia")
+            flashcards = request("/study/flashcards", query="topic=dyslexia")
+        for result in (mind_map, flashcards):
+            self.assertIn('action="/saved/add-topic" method="post"', result["body"])
+            self.assertIn('name="topic" value="Dyslexia"', result["body"])
 
     def test_medlineplus_parser_strips_markup_and_rejects_untrusted_links(self):
         payload = b"""<?xml version="1.0"?>
