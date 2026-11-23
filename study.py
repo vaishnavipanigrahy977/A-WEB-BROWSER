@@ -185,6 +185,37 @@ def create_mind_map(disease):
     ]
 
 
+def create_reference_mind_map(topic, reference=None):
+    summary = reference.get("summary", "").strip() if reference else ""
+    overview = (
+        [summary]
+        if summary
+        else ["No reviewed summary was available; use this map as a research outline."]
+    )
+    return [
+        {"title": "Overview", "points": overview},
+        {
+            "title": "Symptoms",
+            "points": [f"Review the linked source for symptoms of {topic}."],
+        },
+        {
+            "title": "Prevention",
+            "points": [f"Review prevention and risk-reduction information about {topic} in the linked source."],
+        },
+        {
+            "title": "Treatment & care",
+            "points": [f"Review treatment and care information about {topic} in the linked source; this map is not personal medical advice."],
+        },
+        {
+            "title": "Study questions",
+            "points": [
+                f"What does a trusted source say about the causes of {topic}?",
+                f"What does the source explain about {topic}'s symptoms, prevention, and care?",
+            ],
+        },
+    ]
+
+
 AI_SYSTEM_PROMPT = (
     "You are Wellnote's friendly study and general-purpose assistant. Answer the "
     "user's actual question clearly and helpfully, including general knowledge, "

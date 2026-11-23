@@ -128,15 +128,22 @@ def application(environ, start_response):
             [diseases.DISEASES_BY_SLUG[slug] for slug in saved]
         ))
     if path == "/study/mind-map":
-        topic = parse_qs(environ.get("QUERY_STRING", "")).get("topic", [""])[0].strip()
-        selected = diseases.DISEASES_BY_SLUG.get(topic) if topic else None
-        if topic and selected is None:
-            status, body = templates.error_page(
-                "Topic not found", "Choose a topic from the Wellnote study library."
+        topic = parse_qs(environ.get("QUERY_STRING", "")).get("topic", [""])[0].strip()[:120]
+        normalized_topic = topic.casefold()
+        selected = next((
+            item for item in diseases.DISEASES
+            if normalized_topic in (
+                item["name"].casefold(),
+                item["slug"].replace("-", " ").casefold(),
             )
-            return respond(start_response, status, body)
+        ), None)
+        reference = None
+        reference_error = None
+        if topic and not selected:
+            results, reference_error = search_medlineplus(topic)
+            reference = results[0] if results else None
         return respond(start_response, HTTPStatus.OK, templates.mind_map_page(
-            diseases.DISEASES, selected
+            diseases.DISEASES, topic, selected, reference, reference_error
         ))
     if path in ("/study", "/study/question"):
         question = None

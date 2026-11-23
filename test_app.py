@@ -138,9 +138,10 @@ class MedicalAppTests(unittest.TestCase):
 
     def test_mind_map_picker_and_reviewed_topic_map(self):
         picker = request("/study/mind-map")
-        self.assertIn("Choose a health topic", picker["body"])
+        self.assertIn("Enter any disease or health topic", picker["body"])
         self.assertIn("Generate map", picker["body"])
         self.assertIn("asthma", picker["body"])
+        self.assertNotIn("<select", picker["body"])
 
         generated = request("/study/mind-map", query="topic=asthma")
         for expected in (
@@ -151,8 +152,32 @@ class MedicalAppTests(unittest.TestCase):
             self.assertIn(expected, generated["body"])
         self.assertIn("Make a mind map", request("/study/asthma")["body"])
 
-        invalid = request("/study/mind-map", query="topic=unknown")
-        self.assertTrue(invalid["status"].startswith("404"))
+    def test_mind_map_uses_external_reference_for_unlisted_disease(self):
+        source = {
+            "title": "Malaria",
+            "summary": "Malaria is a disease caused by parasites.",
+            "url": "https://medlineplus.gov/malaria.html",
+        }
+        with patch("app.search_medlineplus", return_value=([source], None)) as lookup:
+            generated = request("/study/mind-map", query="topic=malaria")
+        lookup.assert_called_once_with("malaria")
+        for expected in (
+            "Mind map for Malaria", "Malaria is a disease caused by parasites.",
+            "Symptoms", "Review the linked source for symptoms of malaria",
+            "Prevention", "Treatment &amp; care", "Study questions",
+            "https://medlineplus.gov/malaria.html",
+        ):
+            self.assertIn(expected, generated["body"])
+        self.assertNotIn("the search summary does not detail", generated["body"])
+
+    def test_mind_map_still_renders_research_outline_without_reference(self):
+        with patch("app.search_medlineplus", return_value=([], None)) as lookup:
+            generated = request("/study/mind-map", query="topic=rare+condition")
+        lookup.assert_called_once_with("rare condition")
+        self.assertTrue(generated["status"].startswith("200"))
+        self.assertIn("Mind map for rare condition", generated["body"])
+        self.assertIn("No MedlinePlus article was found", generated["body"])
+        self.assertIn("not disease facts", generated["body"])
 
     def test_study_intent_answers_medical_symptom_question_educationally(self):
         source = {

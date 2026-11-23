@@ -120,22 +120,37 @@ def saved_page(diseases):
     return layout("Saved topics", content, "saved")
 
 
-def mind_map_page(diseases, selected=None):
+def mind_map_page(diseases, topic="", selected=None, reference=None, reference_error=None):
     import study
 
-    options = "".join(
-        f'<option value="{quote(item["slug"], safe="")}"{" selected" if selected and selected["slug"] == item["slug"] else ""}>{e(item["name"])}</option>'
-        for item in diseases
-    )
-    picker = f"""<form action="/study/mind-map" method="get" class="mind-map-picker"><label for="mind-map-topic">Choose a health topic</label><div><select id="mind-map-topic" name="topic" required><option value="">Select a topic</option>{options}</select><button class="button button-dark" type="submit">Generate map</button></div></form>"""
+    topic_value = selected["name"] if selected else topic
+    picker = f"""<form action="/study/mind-map" method="get" class="mind-map-picker"><label for="mind-map-topic">Enter any disease or health topic</label><div><input id="mind-map-topic" name="topic" type="search" value="{e(topic_value)}" placeholder="For example: malaria, lupus, or asthma" maxlength="120" required><button class="button button-dark" type="submit">Generate map</button></div></form>"""
     diagram = ""
-    if selected:
+    if topic_value:
+        if selected:
+            branches = study.create_mind_map(selected)
+            title = selected["name"]
+            summary = selected["summary"]
+            source = f"""Based on Wellnote’s educational guide. <a href="{e(selected["source_url"])}" target="_blank" rel="noopener noreferrer">Read {e(selected["source_name"])} ↗</a>"""
+        else:
+            branches = study.create_reference_mind_map(topic_value, reference)
+            title = reference["title"] if reference else topic_value
+            summary = (
+                "See the overview branch for the MedlinePlus summary."
+                if reference else
+                "Use the branches below as research prompts; they are not disease facts."
+            )
+            source = (
+                f"""Based on a MedlinePlus search result. <a href="{e(reference["url"])}" target="_blank" rel="noopener noreferrer">Read {e(reference["title"])} ↗</a>"""
+                if reference else
+                f"""No MedlinePlus article was found{f": {e(reference_error)}" if reference_error else ""}. <a href="https://medlineplus.gov/" target="_blank" rel="noopener noreferrer">Search MedlinePlus ↗</a>"""
+            )
         branches = "".join(
             f'<section class="mind-map-branch"><h3>{e(branch["title"])}</h3><ul>{"".join(f"<li>{e(point)}</li>" for point in branch["points"])}</ul></section>'
-            for branch in study.create_mind_map(selected)
+            for branch in branches
         )
-        diagram = f"""<section class="mind-map-canvas" aria-label="Mind map for {e(selected["name"])}"><div class="mind-map-root"><span class="eyebrow">STUDY TOPIC</span><h2>{e(selected["name"])}</h2><p>{e(selected["summary"])}</p></div><div class="mind-map-branches">{branches}</div></section><p class="mind-map-source">Based on Wellnote’s educational guide. <a href="{e(selected["source_url"])}" target="_blank" rel="noopener noreferrer">Read {e(selected["source_name"])} ↗</a></p>"""
-    content = f"""<section class="simple-hero"><a class="back-link" href="/study">← Study room</a><span class="eyebrow">VISUAL STUDY TOOL</span><h1>Mind map generator<span class="brand-period">.</span></h1><p>Connect the key ideas in a health topic, then use the branches to guide your review.</p></section>{picker}{diagram}{notice("Learning, not diagnosis.", "This visual summary is educational and reflects the selected Wellnote guide. For personal health questions, consult a qualified health professional.")}"""
+        diagram = f"""<section class="mind-map-canvas" aria-label="Mind map for {e(title)}"><div class="mind-map-root"><span class="eyebrow">STUDY TOPIC</span><h2>{e(title)}</h2><p>{e(summary)}</p></div><div class="mind-map-branches">{branches}</div></section><p class="mind-map-source">{source}</p>"""
+    content = f"""<section class="simple-hero"><a class="back-link" href="/study">← Study room</a><span class="eyebrow">VISUAL STUDY TOOL</span><h1>Mind map generator<span class="brand-period">.</span></h1><p>Enter any health topic. Wellnote uses its reviewed guide or searches MedlinePlus for a reference.</p></section>{picker}{diagram}{notice("Learning, not diagnosis.", "Maps outside Wellnote’s reviewed guides use linked references or clearly labeled study prompts. They are educational and not personal medical advice.")}"""
     return layout("Mind map generator", content, "study")
 
 

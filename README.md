@@ -80,9 +80,9 @@ questions are entered as text.
   introductory original practice questions, and answer explanations.
 - A study-buddy overview of all 13 essential vitamins, common deficiency
   findings, dietary sources, a link to NIH fact sheets, and clinical safety context.
-- A mind map generator that turns a selected reviewed disease guide into visual
-  overview, symptom, prevention, care, and study-takeaway branches, with a link
-  to the guide's source.
+- A mind map generator that accepts any typed health topic. It uses Wellnote's
+  reviewed guides when available, otherwise searches MedlinePlus; missing
+  details are presented as research prompts rather than invented facts.
 - NEET, MCAT, and AAMC study prompts that point learners toward official
   information; the app does not reproduce official exam questions.
 - Responsive styling, accessible form labels, and medical-learning disclaimers.
