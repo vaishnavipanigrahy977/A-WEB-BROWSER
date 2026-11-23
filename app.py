@@ -165,7 +165,7 @@ def application(environ, start_response):
             return respond(start_response, HTTPStatus.OK, templates.study_page(
                 diseases.DISEASES,
                 study.greeting(),
-                study.make_response(prompt),
+                study.make_response(prompt, language),
                 prompt=prompt,
                 language=language,
                 current_url=current_url,
@@ -194,7 +194,10 @@ def application(environ, start_response):
             if len(parts) == 2 and parts[1] in ("add-topic", "remove-topic"):
                 topic = form.get("topic", [""])[0].strip()[:120]
                 if not topic:
-                    return respond(start_response, HTTPStatus.BAD_REQUEST, "A health topic is required")
+                    return respond(
+                        start_response, HTTPStatus.BAD_REQUEST,
+                        translations.translate("A health topic is required", language),
+                    )
                 local = find_local_disease(topic)
                 matching_external_token = next(
                     (
@@ -231,22 +234,34 @@ def application(environ, start_response):
             if len(parts) == 3 and parts[1] in ("add", "remove"):
                 slug = parts[2]
                 if slug not in diseases.DISEASES_BY_SLUG:
-                    return respond(start_response, HTTPStatus.NOT_FOUND, "Topic not found")
+                    return respond(
+                        start_response, HTTPStatus.NOT_FOUND,
+                        translations.translate("Topic not found", language),
+                    )
                 if parts[1] == "add" and slug not in saved:
                     saved.append(slug)
                 elif parts[1] == "remove":
                     saved = [entry for entry in saved if entry != slug]
                 return redirect(start_response, "/saved", saved)
-        return respond(start_response, HTTPStatus.NOT_FOUND, "Page not found")
+        return respond(
+            start_response, HTTPStatus.NOT_FOUND,
+            translations.translate("Page not found", language),
+        )
 
     if method != "GET":
-        return respond(start_response, HTTPStatus.METHOD_NOT_ALLOWED, "Method not allowed")
+        return respond(
+            start_response, HTTPStatus.METHOD_NOT_ALLOWED,
+            translations.translate("Method not allowed", language),
+        )
 
     if path == "/language":
         params = parse_qs(query_string)
         requested_language = params.get("lang", [""])[0]
         if requested_language not in translations.LANGUAGES:
-            return respond(start_response, HTTPStatus.BAD_REQUEST, "Unsupported language")
+            return respond(
+                start_response, HTTPStatus.BAD_REQUEST,
+                translations.translate("Unsupported language", language),
+            )
         destination = params.get("next", ["/"])[0]
         parsed_destination = urlsplit(destination)
         if (
@@ -321,7 +336,7 @@ def application(environ, start_response):
         cards = (
             study.create_flashcards(selected)
             if selected else
-            study.create_reference_flashcards(topic, reference)
+            study.create_reference_flashcards(topic, reference, language)
             if reference else
             []
         )
@@ -409,7 +424,7 @@ def application(environ, start_response):
 def serve():
     host = "0.0.0.0"
     port = int(os.environ.get("PORT", "8000"))
-    print(f"Wellnote is running at http://127.0.0.1:{port}")
+    print(f"WellNote is running at http://127.0.0.1:{port}")
     make_server(host, port, application).serve_forever()
 
 

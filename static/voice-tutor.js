@@ -5,11 +5,14 @@
   if (!readButton || !stopButton || !status) return;
 
   const speechSynthesis = window.speechSynthesis;
-  const voiceLanguage = navigator.language || "en-US";
+  const pageLanguage = document.documentElement.lang;
+  const voiceLanguage = pageLanguage === "hi" || pageLanguage === "hi-Latn"
+    ? "hi-IN"
+    : pageLanguage || navigator.language || "en-US";
   if (!speechSynthesis || !window.SpeechSynthesisUtterance) {
     readButton.disabled = true;
     stopButton.disabled = true;
-    status.textContent = "Spoken answers are not supported in this browser.";
+    status.textContent = document.body.dataset.voiceUnsupported;
     return;
   }
 
@@ -22,20 +25,20 @@
   readButton.addEventListener("click", () => {
     const text = answerText();
     if (!text) {
-      status.textContent = "Ask a question first, then your answer can be read aloud.";
+      status.textContent = document.body.dataset.voiceAskFirst;
       return;
     }
     speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = voiceLanguage;
-    utterance.onstart = () => { status.textContent = "Reading the answer aloud."; };
-    utterance.onend = () => { status.textContent = "Finished reading the answer."; };
-    utterance.onerror = () => { status.textContent = "Audio playback stopped or is unavailable."; };
+    utterance.onstart = () => { status.textContent = document.body.dataset.voiceReading; };
+    utterance.onend = () => { status.textContent = document.body.dataset.voiceFinished; };
+    utterance.onerror = () => { status.textContent = document.body.dataset.voiceError; };
     speechSynthesis.speak(utterance);
   });
 
   stopButton.addEventListener("click", () => {
     speechSynthesis.cancel();
-    status.textContent = "Audio stopped.";
+    status.textContent = document.body.dataset.voiceStopped;
   });
 })();

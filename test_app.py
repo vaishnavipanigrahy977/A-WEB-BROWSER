@@ -10,6 +10,7 @@ import app as wellnote_app
 from app import COOKIE_NAME, LANGUAGE_COOKIE_NAME, application
 from medlineplus import search_medlineplus
 from study import EXAM_GUIDES, QUESTIONS, ai_provider_configured, generate_ai_response, make_response, next_question_id
+import translations
 
 
 def request(path="/", method="GET", query="", cookie="", form=""):
@@ -66,7 +67,8 @@ class MedicalAppTests(unittest.TestCase):
         hindi = request("/disease/asthma", cookie=f"{LANGUAGE_COOKIE_NAME}=hi")
         for expected in ('<html lang="hi">', "अस्थमा (दमा)", "सामान्य लक्षण",
                          "साँस में घरघराहट", "रोकथाम और जोखिम में कमी",
-                         "चिकित्सकीय सलाह का विकल्प नहीं", "English"):
+                         "चिकित्सकीय सलाह का विकल्प नहीं", "अंग्रेज़ी",
+                         "WellNote", "मुख्य नेविगेशन"):
             self.assertIn(expected, hindi["body"])
         self.assertIn("National Heart, Lung, and Blood Institute", hindi["body"])
         hindi_diabetes = request(
@@ -119,6 +121,71 @@ class MedicalAppTests(unittest.TestCase):
         self.assertIn("बीमारियों की तुलना", compared)
         self.assertIn("एक दीर्घकालिक स्थिति", compared)
         self.assertIn("टाइप 2 मधुमेह", compared)
+
+    def test_hindi_and_hinglish_localize_quiz_and_flashcards(self):
+        cases = (
+            ("hi", "वायवीय श्वसन के दौरान ATP उत्पादन", "माइटोकॉन्ड्रियन",
+             "कार्ड 1 / 7", "एक दीर्घकालिक स्थिति"),
+            ("hinglish", "Aerobic respiration ke dauraan ATP", "Mitochondrion",
+             "Card 1 / 7", "Ek lambe samay tak rehne wali condition"),
+        )
+        for language, question_text, option_text, progress, summary in cases:
+            with self.subTest(language=language):
+                cookie = f"{LANGUAGE_COOKIE_NAME}={language}"
+                quiz = request("/study/question", cookie=cookie)["body"]
+                self.assertIn(question_text, quiz)
+                self.assertIn(option_text, quiz)
+                self.assertNotIn(
+                    "Which organelle is the main site of ATP production",
+                    quiz,
+                )
+                self.assertIn("WellNote", quiz)
+
+                flashcards = request(
+                    "/study/flashcards",
+                    query="topic=asthma",
+                    cookie=cookie,
+                )["body"]
+                self.assertIn(progress, flashcards)
+                self.assertIn(summary, flashcards)
+                self.assertNotIn(
+                    "A long-term condition that can make the airways inflamed",
+                    flashcards,
+                )
+
+    def test_every_practice_question_has_hindi_and_hinglish_copy(self):
+        for language in ("hi", "hinglish"):
+            for question in QUESTIONS:
+                localized = translations.localize_question(question, language)
+                with self.subTest(language=language, question=question["id"]):
+                    self.assertNotEqual(localized["question"], question["question"])
+                    self.assertEqual(len(localized["options"]), len(question["options"]))
+                    self.assertNotEqual(localized["explanation"], question["explanation"])
+
+    def test_external_reference_chrome_and_study_prompts_follow_selected_language(self):
+        language_cookie = f"{LANGUAGE_COOKIE_NAME}=hi"
+        source = [{
+            "title": "Zika virus",
+            "summary": "Zika is a virus spread by mosquitoes.",
+            "url": "https://medlineplus.gov/zika.html",
+        }]
+        with patch("app.search_medlineplus", return_value=(source, None)):
+            search = request(query="q=zika", cookie=language_cookie)["body"]
+        self.assertIn("विश्वसनीय स्वास्थ्य संदर्भ", search)
+        self.assertIn("“zika” के लिए जानकारी", search)
+        self.assertIn("Zika is a virus spread by mosquitoes.", search)
+        self.assertIn("मूल भाषा में दिख सकते हैं", search)
+        self.assertIn("WellNote", search)
+
+        with patch("app.search_medlineplus", return_value=([], None)):
+            mind_map = request(
+                "/study/mind-map",
+                query="topic=dyslexia",
+                cookie=language_cookie,
+            )["body"]
+        self.assertIn("dyslexia के लक्षणों की जानकारी नहीं थी", mind_map)
+        self.assertIn("विश्वसनीय स्रोत क्या कहता है", mind_map)
+        self.assertNotIn("Symptom details for dyslexia", mind_map)
 
     def test_save_and_remove_topic_work_from_hindi_interface(self):
         language_cookie = f"{LANGUAGE_COOKIE_NAME}=hi"
@@ -217,7 +284,7 @@ class MedicalAppTests(unittest.TestCase):
         with patch("app.search_medlineplus", return_value=(medlineplus_result, None)):
             detail = request("/disease/malaria")
         self.assertTrue(detail["status"].startswith("200"))
-        self.assertIn("This condition is not in Wellnote", detail["body"])
+        self.assertIn("This condition is not in WellNote", detail["body"])
         self.assertNotIn("Common symptoms", detail["body"])
 
     def test_external_disease_search_can_be_saved_and_removed_from_reading_list(self):
@@ -570,7 +637,10 @@ class MedicalAppTests(unittest.TestCase):
 
         long_prompt = "biology " * 250
         captured = []
-        with patch("app.study.make_response", side_effect=lambda text: captured.append(text) or "Let’s study biology."):
+        with patch(
+            "app.study.make_response",
+            side_effect=lambda text, language="en": captured.append(text) or "Let’s study biology.",
+        ):
             result = request(
                 "/study/ask",
                 method="POST",
@@ -698,6 +768,20 @@ class MedicalAppTests(unittest.TestCase):
         self.assertEqual(captured["payload"]["messages"][1]["content"], "Tell me a funny joke")
         self.assertIn("never diagnose", captured["payload"]["messages"][0]["content"])
         self.assertEqual(captured["headers"]["Authorization"], "Bearer test-key-not-a-real-secret")
+
+        hindi_payload = {}
+
+        def capture_hindi_request(request, timeout):
+            hindi_payload["messages"] = json.loads(request.data.decode())["messages"]
+            return FakeResponse()
+
+        with patch.dict(os.environ, config, clear=True):
+            with patch("study.urlopen", side_effect=capture_hindi_request):
+                generate_ai_response("Explain a biology topic", "hi")
+        self.assertIn(
+            "Hindi written in Devanagari",
+            hindi_payload["messages"][0]["content"],
+        )
 
     def test_ai_provider_missing_configuration_uses_safe_local_fallback(self):
         with patch.dict(os.environ, {}, clear=True):

@@ -1,6 +1,6 @@
-# Wellnote
+# WellNote
 
-Wellnote is a small, server-rendered medical learning app built with Python's
+WellNote is a small, server-rendered medical learning app built with Python's
 standard library. Application logic, disease search, saved topics, study prompts,
 and practice-question checking run in Python; pages use HTML forms and CSS.
 A small browser script only connects to built-in speech-recognition and
@@ -23,7 +23,7 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000). Run the tests with:
 python -m unittest
 ```
 
-For hosting platforms, Wellnote binds to `0.0.0.0` and reads the listening
+For hosting platforms, WellNote binds to `0.0.0.0` and reads the listening
 port from the `PORT` environment variable. If `PORT` is unset, it uses `8000`,
 so the local command above remains unchanged.
 
@@ -57,7 +57,7 @@ python app.py
 
 `WELLNOTE_AI_BASE_URL` defaults to `https://api.openai.com/v1`. The model's
 knowledge and reliability depend on the configured provider and model; answers
-can be incomplete or incorrect. Wellnote does not guarantee comprehensive
+can be incomplete or incorrect. WellNote does not guarantee comprehensive
 world knowledge. Provider errors are shown in the study buddy instead of being
 silently replaced with a canned answer.
 
@@ -81,16 +81,18 @@ questions are entered as text.
   introductory original practice questions, and answer explanations.
 - A study-buddy overview of all 13 essential vitamins, common deficiency
   findings, dietary sources, a link to NIH fact sheets, and clinical safety context.
-- A mind map generator that accepts any typed health topic. It uses Wellnote's
+- A mind map generator that accepts any typed health topic. It uses WellNote's
   reviewed guides when available, otherwise searches MedlinePlus; missing
   details are labeled as unavailable, with links to the full article for details.
 - Smart flashcards generated from reviewed local guides or MedlinePlus summaries,
   with revealable answers and URL-based next/previous navigation.
-- Side-by-side comparison for two typed health topics, using reviewed Wellnote
+- Side-by-side comparison for two typed health topics, using reviewed WellNote
   guides or MedlinePlus references and marking unavailable details clearly.
-- An English/Hindi/Hinglish language switcher. The reviewed starter disease
-  guides and core interface are available in Hindi and Roman-script Hinglish;
-  external references and some study content may remain in English.
+- An English/Hindi/Hinglish language switcher. The interface, reviewed starter
+  guides, and built-in practice questions are available in Hindi and
+  Roman-script Hinglish. MedlinePlus excerpts retain their source wording;
+  configured study-buddy models are asked to answer in the selected language,
+  though external and local fallback replies may not be fully translated.
 - NEET, MCAT, and AAMC study prompts that point learners toward official
   information; the app does not reproduce official exam questions.
 - Responsive styling, accessible form labels, and medical-learning disclaimers.
