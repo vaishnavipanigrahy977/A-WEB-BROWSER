@@ -3,9 +3,9 @@
 WellNote is a small, server-rendered medical learning app built with Python's
 standard library. Application logic, disease search, saved topics, study prompts,
 and practice-question checking run in Python; pages use HTML forms and CSS.
-A small browser script only connects to built-in speech-recognition and
-speech-playback features; tutor answers and app behavior remain server-side
-Python. No third-party Python packages are required. The study buddy can connect
+Browser scripts are reserved for browser-only speech features and the WebGL
+anatomy renderer; app routes, study behavior, and educational content remain
+server-side Python. No third-party Python packages are required. The study buddy can connect
 to a configurable OpenAI-compatible chat-completions API for general conversation
 and study help.
 
@@ -111,9 +111,11 @@ for clearer pronunciation. Tutor questions are entered as text.
   with revealable answers and URL-based next/previous navigation.
 - Side-by-side comparison for two typed health topics, using reviewed WellNote
   guides or MedlinePlus references and marking unavailable details clearly.
-- Body Verse, an interactive, rotatable and zoomable anatomy learning model
-  with selectable organs, arteries and veins, muscles, and a final skeleton
-  layer. Each selection shows its system, function, and a learning fact.
+- Body Verse, a WebGL anatomy viewer with system cards, mouse/touch rotate and
+  zoom, searchable/selectable model structures, and a details panel. It loads
+  licensed Z-Anatomy FBX models on demand; reviewed notes are shown where
+  available, while uncatalogued structures are identified without invented
+  descriptions. The skeleton is the final system card.
 - An English/Hindi/Hinglish language switcher. The interface, reviewed starter
   guides, and built-in practice questions are available in Hindi and
   Roman-script Hinglish. MedlinePlus excerpts retain their source wording;
@@ -129,6 +131,13 @@ The built-in disease library and local tutor provide curated educational
 examples—not an exhaustive database, a diagnostic system, or a full exam
 preparation course. Generative answers require the optional configured provider
 and are not guaranteed complete or correct.
+Body Verse requires WebGL and an internet connection to load Three.js and the
+selected 3D anatomy model. Depending on the selected system, the source model
+download is approximately 2–65 MB. The models are from [Z-Anatomy](https://github.com/LluisV/Z-Anatomy)
+and [BodyParts3D](https://dbarchive.biosciencedbc.jp/en/bodyparts3d/download.html)
+and are attributed in the viewer under their applicable Creative Commons
+licenses; see the linked upstream model credits for additional contributors and
+license details.
 Unknown disease searches use the external
 MedlinePlus service and require an internet connection; it may not have an
 article for every topic. Medical information is for general education and is

@@ -1,6 +1,7 @@
 """Escaped HTML rendering for the Python-led server-rendered app."""
 
 from html import escape
+import json
 import re
 from urllib.parse import quote, quote_plus, urlencode
 
@@ -342,93 +343,68 @@ def body_verse_page(language="en", current_url="/"):
     def localized(text):
         return translations.translate(text, language)
 
-    layer_buttons = "".join(
-        f'<button type="button" class="body-layer-button{" active" if layer_id == "organs" else ""}" data-body-layer="{layer_id}" aria-pressed="{str(layer_id == "organs").lower()}">{e(localized(layer["label"]))}</button>'
-        for layer_id, layer in body_verse.LAYERS.items()
-    )
-    svg_layers = []
-    part_lists = []
-    for layer_id, layer in body_verse.LAYERS.items():
-        active = layer_id == "organs"
-        svg_parts = []
-        buttons = []
-        for index, part in enumerate(layer["parts"]):
-            part_id = part["id"]
-            name = localized(part["name"])
-            system = localized(part["system"])
-            summary = localized(part["summary"])
-            fact = localized(part["fact"])
-            selected = active and part_id == "heart"
-            svg_parts.append(
-                f'<g class="anatomy-hit{" is-selected" if selected else ""}" '
-                f'role="button" tabindex="0" aria-label="{e(name)}" '
-                f'data-anatomy-id="{part_id}">{body_verse.SHAPES[part_id]}</g>'
-            )
-            buttons.append(
-                f'<button type="button" class="body-part-button{" selected" if selected else ""}" '
-                f'data-anatomy-id="{part_id}" data-name="{e(name)}" '
-                f'data-system="{e(system)}" data-function="{e(summary)}" '
-                f'data-fact="{e(fact)}" aria-pressed="{str(selected).lower()}">'
-                f'<span>{e(name)}</span><small>{e(system)}</small></button>'
-            )
-        svg_layers.append(
-            f'<g class="body-layer" data-body-layer="{layer_id}"'
-            f'{" hidden" if not active else ""} aria-hidden="{str(not active).lower()}">'
-            f'{"".join(svg_parts)}</g>'
+    catalog = {}
+    for layer in body_verse.LAYERS.values():
+        for part in layer["parts"]:
+            catalog[part["name"].casefold()] = {
+                key: localized(part[key])
+                for key in ("name", "system", "summary", "fact")
+            }
+    catalog_json = json.dumps(catalog, ensure_ascii=False).replace("<", "\\u003c")
+    system_cards = []
+    model_data = {}
+    for system_id, system in body_verse.SYSTEMS.items():
+        label = localized(system["label"])
+        model_url = body_verse.MODEL_BASE_URL + quote(system["model"], safe="")
+        model_data[system_id] = {
+            "label": label,
+            "description": localized(system["description"]),
+            "model": model_url,
+            "size": system["size"],
+        }
+        system_cards.append(
+            f'<button type="button" class="anatomy-system-card" '
+            f'data-system-card="{system_id}" aria-pressed="false">'
+            f'<span class="anatomy-card-index">{len(system_cards) + 1:02}</span>'
+            f'<span class="anatomy-card-name">{e(label)}</span>'
+            f'<span class="anatomy-card-description">{e(localized(system["description"]))}</span>'
+            f'<span class="anatomy-card-meta">{e(system["size"])} · {e(localized("loads when selected"))}</span>'
+            f'</button>'
         )
-        part_lists.append(
-            f'<div class="body-part-list" data-part-list="{layer_id}"'
-            f'{" hidden" if not active else ""}>{"".join(buttons)}</div>'
-        )
-
-    svg = f"""<svg class="body-verse-svg" viewBox="0 0 400 700" role="img" aria-label="{e(localized("Interactive human body model"))}">
-      <defs>
-        <linearGradient id="body-skin" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#f6dbc9"/><stop offset=".52" stop-color="#eec9b4"/><stop offset="1" stop-color="#d9aa94"/></linearGradient>
-        <radialGradient id="body-glow"><stop offset="0" stop-color="#fff" stop-opacity=".8"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
-        <filter id="body-shadow" x="-35%" y="-20%" width="170%" height="150%"><feDropShadow dx="0" dy="12" stdDeviation="10" flood-color="#304d42" flood-opacity=".15"/></filter>
-      </defs>
-      <ellipse cx="200" cy="673" rx="117" ry="15" fill="#294a3d" opacity=".12"/>
-      <g class="body-shell" filter="url(#body-shadow)">
-        <ellipse cx="200" cy="76" rx="37" ry="47" fill="url(#body-skin)" stroke="#ca9981" stroke-width="2"/>
-        <path d="M181 112h38v38h-38z" fill="url(#body-skin)" stroke="#ca9981" stroke-width="2"/>
-        <path d="M146 137c-24 4-41 19-48 43l-29 91c-5 15 2 28 14 31 11 3 19-4 23-17l28-69-9 99c-2 23 10 41 30 49h90c20-8 32-26 30-49l-9-99 28 69c4 13 12 20 23 17 12-3 19-16 14-31l-29-91c-7-24-24-39-48-43l-27-4h-58z" fill="url(#body-skin)" stroke="#ca9981" stroke-width="2"/>
-        <path d="M155 361c-16 13-21 35-20 62l7 111c1 16 11 25 22 20 9-4 11-16 12-30l11-79 13-83zm90 0c16 13 21 35 20 62l-7 111c-1 16-11 25-22 20-9-4-11-16-12-30l-11-79-13-83z" fill="url(#body-skin)" stroke="#ca9981" stroke-width="2"/>
-        <path d="M144 535c-11 15-17 42-19 91-1 18 9 23 19 13l25-26 15-82zm112 0c11 15 17 42 19 91 1 18-9 23-19 13l-25-26-15-82z" fill="url(#body-skin)" stroke="#ca9981" stroke-width="2"/>
-        <ellipse cx="187" cy="177" rx="38" ry="72" fill="url(#body-glow)" opacity=".42"/>
-      </g>
-      {"".join(svg_layers)}
-    </svg>"""
-    initial = next(
-        part for part in body_verse.LAYERS["organs"]["parts"]
-        if part["id"] == "heart"
-    )
-    initial_values = {
-        key: localized(initial[key])
-        for key in ("name", "system", "summary", "fact")
-    }
-    part_panel = "".join(part_lists)
+    models_json = json.dumps(model_data, ensure_ascii=False).replace("<", "\\u003c")
     content = f"""<section class="simple-hero body-verse-hero"><a class="back-link" href="/study">{e(localized("← Study room"))}</a><span class="eyebrow">{e(localized("INTERACTIVE ANATOMY"))}</span><h1>Body Verse<span class="brand-period">.</span></h1><p>{e(localized("Explore the human body"))}</p></section>
+    <section class="anatomy-systems" aria-label="{e(localized("Choose an anatomy system"))}">
+      <div class="anatomy-section-heading"><div><span class="eyebrow">{e(localized("EXPLORE BY SYSTEM"))}</span><h2>{e(localized("Choose a body system"))}</h2></div><p>{e(localized("Select a system to load its detailed 3D model. Models load on demand."))}</p></div>
+      <div class="anatomy-system-grid">{"".join(system_cards)}</div>
+    </section>
     <section class="body-verse-explorer" aria-label="{e(localized("Interactive anatomy explorer"))}">
       <div class="body-verse-main">
-        <div class="body-verse-toolbar"><div class="body-layer-tabs" role="group" aria-label="{e(localized("Body layers"))}">{layer_buttons}</div><div class="body-zoom-tools" role="group" aria-label="{e(localized("Model controls"))}"><button type="button" class="body-zoom-button" data-zoom="out" aria-label="{e(localized("Zoom out"))}">−</button><button type="button" class="body-zoom-button" data-zoom="in" aria-label="{e(localized("Zoom in"))}">＋</button><button type="button" class="body-zoom-reset" data-zoom="reset">{e(localized("Reset view"))}</button></div></div>
+        <div class="body-verse-toolbar"><div><span class="eyebrow" data-viewer-system>{e(localized("3D ANATOMY VIEWER"))}</span><h2 data-viewer-title>{e(localized("Choose a system above"))}</h2></div><div class="body-zoom-tools" role="group" aria-label="{e(localized("Model controls"))}"><button type="button" class="body-zoom-button" data-camera="zoom-out" aria-label="{e(localized("Zoom out"))}">−</button><button type="button" class="body-zoom-button" data-camera="zoom-in" aria-label="{e(localized("Zoom in"))}">＋</button><button type="button" class="body-zoom-reset" data-camera="reset">{e(localized("Reset view"))}</button></div></div>
         <div class="body-verse-stage" data-body-stage>
-          <div class="body-verse-model" data-body-model>{svg}</div>
-          <div class="body-stage-caption"><span class="stage-orbit">↻</span><span>{e(localized("Drag the model to rotate"))}<small>{e(localized("Choose a highlighted structure for details"))}</small></span></div>
-          <span class="stage-badge">{e(localized("3D-style learning model"))}</span>
+          <canvas class="body-verse-canvas" data-body-canvas aria-label="{e(localized("Interactive human body model"))}"></canvas>
+          <div class="body-stage-empty" data-body-empty><span class="stage-orbit">↻</span><strong>{e(localized("Choose a system to begin"))}</strong><small>{e(localized("Drag to rotate · Scroll to zoom · Click a structure for details"))}</small></div>
+          <div class="body-stage-loading" data-body-loading hidden><span class="anatomy-spinner"></span><strong data-loading-title>{e(localized("Preparing 3D anatomy"))}</strong><small data-loading-progress>{e(localized("Connecting to the model library…"))}</small></div>
+          <div class="body-stage-error" data-body-error hidden role="alert"></div>
+          <div class="body-stage-caption"><span class="stage-orbit">↻</span><span>{e(localized("Drag to rotate"))}<small>{e(localized("Click a structure to see its details"))}</small></span></div>
+          <span class="stage-badge">{e(localized("Licensed 3D anatomy"))}</span>
         </div>
       </div>
       <aside class="body-verse-side-panel" aria-label="{e(localized("Selected anatomy details"))}">
         <div class="body-detail-card" aria-live="polite">
-          <span class="eyebrow" data-detail-system>{e(initial_values["system"])}</span>
-          <h2 data-detail-name>{e(initial_values["name"])}</h2>
-          <div class="body-detail-section"><span class="body-detail-icon">✳</span><div><h3>{e(localized("What it does"))}</h3><p data-detail-function>{e(initial_values["summary"])}</p></div></div>
-          <div class="body-detail-fact"><span class="eyebrow">{e(localized("LEARN A LITTLE MORE"))}</span><p data-detail-fact>{e(initial_values["fact"])}</p></div>
+          <span class="eyebrow" data-detail-system>{e(localized("ANATOMY EXPLORER"))}</span>
+          <h2 data-detail-name>{e(localized("No structure selected"))}</h2>
+          <div class="body-detail-section"><span class="body-detail-icon">✳</span><div><h3>{e(localized("What it does"))}</h3><p data-detail-function>{e(localized("Select a structure in the 3D model or list to view its learning notes."))}</p></div></div>
+          <div class="body-detail-fact"><span class="eyebrow">{e(localized("LEARN A LITTLE MORE"))}</span><p data-detail-fact>{e(localized("Notes are available for selected common structures; other model labels are shown without unverified descriptions."))}</p></div>
         </div>
-        <div class="body-part-navigation"><span class="eyebrow">{e(localized("EXPLORE THIS LAYER"))}</span>{part_panel}</div>
+        <div class="body-part-navigation"><div class="anatomy-list-heading"><span class="eyebrow">{e(localized("MODEL STRUCTURES"))}</span><span data-structure-count>0</span></div><label class="anatomy-search-label" for="anatomy-search">{e(localized("Search this model"))}</label><input id="anatomy-search" class="anatomy-search" type="search" data-structure-search disabled placeholder="{e(localized("Choose a system first"))}"><p class="anatomy-list-empty" data-list-empty>{e(localized("Choose a system to load its structure list."))}</p><div class="body-part-list" data-structure-list role="list"></div><button type="button" class="anatomy-more-button" data-show-more hidden>{e(localized("Show more structures"))}</button></div>
       </aside>
     </section>
-    {notice("Anatomy for learning.", "Body Verse uses simplified educational illustrations, not a medical atlas. Parts are not to scale and the model cannot diagnose or guide treatment.")}
-    <script src="/static/body-verse.js" defer></script>"""
+    <div class="body-model-credit"><strong>{e(localized("Model credit"))}:</strong> Z-Anatomy by Lluís Vinent Juanico and contributors; based on BodyParts3D by Database Center for Life Science. Licensed CC BY-SA 4.0 / CC BY-SA 2.1 Japan. <a href="https://github.com/LluisV/Z-Anatomy/blob/{body_verse.MODEL_REVISION}/Resources/Models/License.txt" target="_blank" rel="noopener noreferrer">{e(localized("View model credits and license"))} ↗</a></div>
+    {notice("Anatomy for learning.", "The 3D atlas is an educational reference, not a complete clinical atlas. Structure notes are curated examples, not diagnosis or treatment advice.")}
+    <script type="application/json" id="body-verse-models">{models_json}</script>
+    <script type="application/json" id="body-verse-catalog">{catalog_json}</script>
+    <script type="importmap">{{"imports":{{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"}}}}</script>
+    <script type="module" src="/static/body-verse.js"></script>"""
     return layout(
         "Body Verse",
         content,

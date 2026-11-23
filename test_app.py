@@ -125,7 +125,7 @@ class MedicalAppTests(unittest.TestCase):
         self.assertIn("एक दीर्घकालिक स्थिति", compared)
         self.assertIn("टाइप 2 मधुमेह", compared)
 
-    def test_body_verse_has_clickable_details_for_each_anatomy_layer(self):
+    def test_body_verse_has_real_3d_system_models_and_selectable_details(self):
         page = request("/study/body-verse")
         self.assertTrue(page["status"].startswith("200"))
         for expected in (
@@ -135,23 +135,35 @@ class MedicalAppTests(unittest.TestCase):
             "What it does",
             'data-detail-fact',
             'href="/static/body-verse.css"',
+            'type="importmap"',
+            'type="module" src="/static/body-verse.js"',
+            "OrbitControls",
+            "FBXLoader",
+            "Raycaster",
+            "Z-Anatomy",
+            "BodyParts3D",
+            "CC BY-SA 4.0",
         ):
-            self.assertIn(expected, page["body"])
+            if expected in ("OrbitControls", "FBXLoader", "Raycaster"):
+                self.assertIn(expected, request("/static/body-verse.js")["body"])
+            else:
+                self.assertIn(expected, page["body"])
         self.assertIn('href="/study/body-verse"', request("/study")["body"])
-        rendered_layers = re.findall(
-            r'<button[^>]+data-body-layer="([^"]+)"',
+        rendered_systems = re.findall(
+            r'<button[^>]+data-system-card="([^"]+)"',
             page["body"],
         )
-        self.assertEqual(rendered_layers, list(body_verse.LAYERS))
-        for layer in body_verse.LAYERS.values():
-            for part in layer["parts"]:
-                with self.subTest(part=part["id"]):
-                    self.assertIn(f'data-anatomy-id="{part["id"]}"', page["body"])
-                    self.assertIn(part["id"], body_verse.SHAPES)
+        self.assertEqual(rendered_systems, list(body_verse.SYSTEMS))
+        for system in body_verse.SYSTEMS.values():
+            with self.subTest(system=system["model"]):
+                self.assertIn(system["model"], page["body"])
+        self.assertNotIn("<svg", page["body"])
 
         script = request("/static/body-verse.js")
         self.assertTrue(script["status"].startswith("200"))
-        self.assertIn("pointermove", script["body"])
+        self.assertIn("pointerup", script["body"])
+        self.assertIn("loader.load", script["body"])
+        self.assertIn("data-structure-search", page["body"])
         self.assertIn("data-detail-function", page["body"])
         self.assertTrue(request("/static/body-verse.css")["status"].startswith("200"))
 

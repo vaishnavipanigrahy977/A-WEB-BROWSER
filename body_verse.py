@@ -1,4 +1,49 @@
-"""Curated learning labels and schematic vector shapes for Body Verse."""
+"""Curated anatomy learning content and licensed 3D model catalog."""
+
+MODEL_REVISION = "6c7f9016bd5899ac8edafd31b9900c151df42ed6"
+MODEL_BASE_URL = (
+    "https://raw.githubusercontent.com/LluisV/Z-Anatomy/"
+    f"{MODEL_REVISION}/Resources/Models/FBX/"
+)
+
+SYSTEMS = {
+    "muscles": {
+        "label": "Muscles",
+        "description": "Explore the body's major muscles and supporting structures.",
+        "model": "MuscularSystem100.fbx",
+        "size": "37 MB",
+    },
+    "vessels": {
+        "label": "Arteries & veins",
+        "description": "Explore the cardiovascular system, including the heart and blood vessels.",
+        "model": "CardioVascular41.fbx",
+        "size": "65 MB",
+    },
+    "organs": {
+        "label": "Organs",
+        "description": "Explore the digestive, respiratory, urinary, and other visceral structures.",
+        "model": "VisceralSystem100.fbx",
+        "size": "18 MB",
+    },
+    "nervous": {
+        "label": "Nervous system",
+        "description": "Explore the brain, spinal cord, nerves, and sensory structures.",
+        "model": "NervousSystem100.fbx",
+        "size": "54 MB",
+    },
+    "lymphatic": {
+        "label": "Lymphatic system",
+        "description": "Explore lymphatic and immune structures throughout the body.",
+        "model": "LymphoidOrgans100.fbx",
+        "size": "2 MB",
+    },
+    "skeleton": {
+        "label": "Skeleton",
+        "description": "Explore the bones and joints that support and protect the body.",
+        "model": "SkeletalSystem100.fbx",
+        "size": "41 MB",
+    },
+}
 
 
 LAYERS = {
