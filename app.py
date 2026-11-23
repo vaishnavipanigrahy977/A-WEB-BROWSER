@@ -145,6 +145,37 @@ def application(environ, start_response):
         return respond(start_response, HTTPStatus.OK, templates.mind_map_page(
             diseases.DISEASES, topic, selected, reference, reference_error
         ))
+    if path == "/study/flashcards":
+        topic = parse_qs(environ.get("QUERY_STRING", "")).get("topic", [""])[0].strip()[:120]
+        normalized_topic = topic.casefold()
+        selected = next((
+            item for item in diseases.DISEASES
+            if normalized_topic in (
+                item["name"].casefold(),
+                item["slug"].replace("-", " ").casefold(),
+            )
+        ), None)
+        reference = None
+        reference_error = None
+        if topic and not selected:
+            results, reference_error = search_medlineplus(topic)
+            reference = results[0] if results else None
+        cards = (
+            study.create_flashcards(selected)
+            if selected else
+            study.create_reference_flashcards(topic, reference)
+            if reference else
+            []
+        )
+        try:
+            card_index = int(parse_qs(environ.get("QUERY_STRING", "")).get("card", ["0"])[0])
+        except ValueError:
+            card_index = 0
+        if not 0 <= card_index < len(cards):
+            card_index = 0
+        return respond(start_response, HTTPStatus.OK, templates.flashcards_page(
+            topic, selected, reference, cards, card_index, reference_error
+        ))
     if path in ("/study", "/study/question"):
         question = None
         if path.endswith("/question"):

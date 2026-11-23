@@ -208,6 +208,52 @@ class MedicalAppTests(unittest.TestCase):
         self.assertIn("Search MedlinePlus for details", generated["body"])
         self.assertEqual(generated["body"].count('class="mind-map-detail-link"'), 5)
 
+    def test_smart_flashcards_reveal_and_navigate_local_deck(self):
+        picker = request("/study/flashcards")
+        self.assertIn("Choose any disease or health topic", picker["body"])
+        self.assertIn("Build deck", picker["body"])
+
+        first = request("/study/flashcards", query="topic=asthma")
+        self.assertIn("CARD 1 OF 7", first["body"])
+        self.assertIn("What is Asthma?", first["body"])
+        self.assertIn("<details class=\"flashcard-reveal\">", first["body"])
+        self.assertIn("<summary>Reveal answer</summary>", first["body"])
+        self.assertIn("https://www.nhlbi.nih.gov/health/asthma", first["body"])
+        self.assertIn("topic=asthma&amp;card=1", first["body"])
+        self.assertIn("Study with flashcards", request("/study/asthma")["body"])
+
+        second = request("/study/flashcards", query="topic=asthma&card=1")
+        self.assertIn("What are common symptoms of Asthma?", second["body"])
+        self.assertIn("CARD 2 OF 7", second["body"])
+        self.assertIn("topic=asthma&amp;card=0", second["body"])
+        last = request("/study/flashcards", query="topic=asthma&card=6")
+        self.assertIn("topic=asthma&amp;card=0", last["body"])
+        invalid = request("/study/flashcards", query="topic=asthma&card=bogus")
+        self.assertIn("CARD 1 OF 7", invalid["body"])
+
+    def test_external_flashcards_are_sourced_and_empty_search_is_clear(self):
+        source = {
+            "title": "Malaria",
+            "summary": (
+                "Malaria is a disease caused by parasites. "
+                "Symptoms include fever and chills. Malaria can be prevented. "
+                "Treatment includes antimalarial medicines."
+            ),
+            "url": "https://medlineplus.gov/malaria.html",
+        }
+        with patch("app.search_medlineplus", return_value=([source], None)) as lookup:
+            deck = request("/study/flashcards", query="topic=malaria")
+        lookup.assert_called_once_with("malaria")
+        self.assertIn("What does the MedlinePlus article say about overview for malaria?", deck["body"])
+        self.assertIn("Symptoms include fever and chills.", deck["body"])
+        self.assertIn("Read the MedlinePlus article", deck["body"])
+
+        with patch("app.search_medlineplus", return_value=([], None)):
+            unavailable = request("/study/flashcards", query="topic=unknown")
+        self.assertIn("No reviewed flashcards available", unavailable["body"])
+        self.assertIn("No factual flashcards were generated.", unavailable["body"])
+        self.assertNotIn("<details class=\"flashcard-reveal\">", unavailable["body"])
+
     def test_study_intent_answers_medical_symptom_question_educationally(self):
         source = {
             "title": "Malaria",

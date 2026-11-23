@@ -83,6 +83,8 @@ questions are entered as text.
 - A mind map generator that accepts any typed health topic. It uses Wellnote's
   reviewed guides when available, otherwise searches MedlinePlus; missing
   details are labeled as unavailable, with links to the full article for details.
+- Smart flashcards generated from reviewed local guides or MedlinePlus summaries,
+  with revealable answers and URL-based next/previous navigation.
 - NEET, MCAT, and AAMC study prompts that point learners toward official
   information; the app does not reproduce official exam questions.
 - Responsive styling, accessible form labels, and medical-learning disclaimers.

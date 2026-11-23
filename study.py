@@ -226,6 +226,52 @@ def create_reference_mind_map(topic, reference=None):
     return branches
 
 
+def create_flashcards(disease):
+    cards = [
+        {
+            "category": "OVERVIEW",
+            "question": f"What is {disease['name']}?",
+            "answer": [disease["summary"], disease["description"]],
+        },
+        {
+            "category": "SYMPTOMS",
+            "question": f"What are common symptoms of {disease['name']}?",
+            "answer": disease["symptoms"],
+        },
+        {
+            "category": "PREVENTION",
+            "question": f"What can help prevent or reduce risk from {disease['name']}?",
+            "answer": disease["prevention"],
+        },
+        {
+            "category": "TREATMENT",
+            "question": f"What should you know about treatment for {disease['name']}?",
+            "answer": [disease["treatment"]],
+        },
+    ]
+    cards.extend(
+        {
+            "category": "QUICK REVIEW",
+            "question": f"What is a key study point about {disease['name']}?",
+            "answer": [point],
+        }
+        for point in disease["study_points"]
+    )
+    return cards
+
+
+def create_reference_flashcards(topic, reference):
+    return [
+        {
+            "category": branch["title"].upper(),
+            "question": f"What does the MedlinePlus article say about {branch['title'].lower()} for {topic}?",
+            "answer": branch["points"],
+        }
+        for branch in create_reference_mind_map(topic, reference)
+        if branch["title"] != "Study questions"
+    ]
+
+
 AI_SYSTEM_PROMPT = (
     "You are Wellnote's friendly study and general-purpose assistant. Answer the "
     "user's actual question clearly and helpfully, including general knowledge, "
