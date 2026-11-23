@@ -254,6 +254,58 @@ class MedicalAppTests(unittest.TestCase):
         self.assertIn("No factual flashcards were generated.", unavailable["body"])
         self.assertNotIn("<details class=\"flashcard-reveal\">", unavailable["body"])
 
+    def test_disease_comparison_form_and_local_topics(self):
+        picker = request("/study/compare")
+        self.assertIn("First health topic", picker["body"])
+        self.assertIn("Second health topic", picker["body"])
+
+        with patch("app.search_medlineplus") as lookup:
+            compared = request(
+                "/study/compare",
+                query="first=asthma&second=type-2-diabetes",
+            )
+        lookup.assert_not_called()
+        for expected in (
+            "Disease comparison", "Asthma", "Type 2 diabetes",
+            "Symptoms", "Prevention", "Treatment &amp; care",
+            "Wheezing", "blood glucose", "National Heart, Lung, and Blood Institute",
+        ):
+            self.assertIn(expected, compared["body"])
+        self.assertIn("Compare with another topic", request("/study/asthma")["body"])
+
+        duplicate = request("/study/compare", query="first=asthma&second=ASTHMA")
+        self.assertIn("Enter two different diseases or health topics", duplicate["body"])
+
+    def test_disease_comparison_uses_external_sources_and_marks_missing_details(self):
+        malaria = {
+            "title": "Malaria",
+            "summary": (
+                "Malaria is caused by parasites. Symptoms include fever and chills. "
+                "It can be prevented. Treatment includes antimalarial medicines."
+            ),
+            "url": "https://medlineplus.gov/malaria.html",
+        }
+        dyslexia = {
+            "title": "Learning Disabilities",
+            "summary": "Learning disabilities can cause problems with reading and writing.",
+            "url": "https://medlineplus.gov/learningdisabilities.html",
+        }
+        with patch("app.search_medlineplus", side_effect=[([malaria], None), ([dyslexia], None)]) as lookup:
+            compared = request(
+                "/study/compare",
+                query="first=malaria&second=dyslexia",
+            )
+        self.assertEqual(lookup.call_count, 2)
+        self.assertIn("Symptoms include fever and chills.", compared["body"])
+        self.assertIn("Symptom details for dyslexia were not included in this search summary.", compared["body"])
+        self.assertIn("https://medlineplus.gov/malaria.html", compared["body"])
+        self.assertIn("https://medlineplus.gov/learningdisabilities.html", compared["body"])
+
+        with patch("app.search_medlineplus", return_value=([], None)):
+            unavailable = request("/study/compare", query="first=unknown&second=rare")
+        self.assertIn("No reviewed MedlinePlus details were found for unknown.", unavailable["body"])
+        self.assertIn("Search MedlinePlus ↗", unavailable["body"])
+
     def test_study_intent_answers_medical_symptom_question_educationally(self):
         source = {
             "title": "Malaria",
