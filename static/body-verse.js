@@ -519,7 +519,7 @@ function loadSketchfabSection(systemId) {
   const iframe = document.createElement("iframe");
   iframe.title = system.label;
   iframe.allow = "autoplay; fullscreen; xr-spatial-tracking";
-  iframe.src = `https://sketchfab.com/models/${system.embed}/embed?autostart=1&ui_theme=light&ui_infos=0&ui_watermark=0&ui_controls=1&dnt=1`;
+  iframe.src = `https://sketchfab.com/models/${system.embed}/embed?autostart=1&ui_theme=light&transparent=0&ui_infos=0&ui_watermark=0&ui_controls=0&ui_stop=0&ui_help=0&ui_settings=0&ui_vr=0&ui_fullscreen=0&ui_annotations=0&annotations_visible=0&dnt=1`;
   wrapper.append(iframe);
   stage.append(wrapper);
   imageViewport = wrapper;
