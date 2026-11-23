@@ -7,12 +7,6 @@ MODEL_BASE_URL = (
 )
 
 SYSTEMS = {
-    "whole-body": {
-        "label": "Whole body",
-        "description": "Explore the major visceral organs in a real rotatable 3D model.",
-        "model": "VisceralSystem100.fbx",
-        "size": "18 MB",
-    },
     "muscles": {
         "label": "Muscles",
         "description": "Explore the body's major muscles and supporting structures.",
@@ -28,20 +22,23 @@ SYSTEMS = {
     "organs": {
         "label": "Organs",
         "description": "Explore the digestive, respiratory, urinary, and other visceral structures.",
-        "model": "VisceralSystem100.fbx",
-        "size": "18 MB",
+        "model": "",
+        "size": "Sketchfab 3D",
+        "embed": "fe69d7b1ed6f46a3bd0b6933b796092e",
     },
     "nervous": {
         "label": "Nervous system",
         "description": "Explore the brain, spinal cord, nerves, and sensory structures.",
-        "model": "NervousSystem100.fbx",
-        "size": "54 MB",
+        "model": "",
+        "size": "Sketchfab 3D",
+        "embed": "0caae8f894cc40b69f3f78adf14b9665",
     },
     "lymphatic": {
         "label": "Lymphatic system",
         "description": "Explore lymphatic and immune structures throughout the body.",
-        "model": "LymphoidOrgans100.fbx",
-        "size": "2 MB",
+        "model": "",
+        "size": "Sketchfab 3D",
+        "embed": "14800d739ecb46678d7584a401b0aa77",
     },
     "skeleton": {
         "label": "Skeleton",

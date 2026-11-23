@@ -21,6 +21,7 @@ const detailName = document.querySelector("[data-detail-name]");
 const detailSystem = document.querySelector("[data-detail-system]");
 const detailFunction = document.querySelector("[data-detail-function]");
 const detailFact = document.querySelector("[data-detail-fact]");
+const detailLink = document.querySelector("[data-detail-link]");
 const viewerTitle = document.querySelector("[data-viewer-title]");
 const viewerSystem = document.querySelector("[data-viewer-system]");
 const stageBadge = document.querySelector("[data-stage-badge]");
@@ -259,23 +260,66 @@ function normalizedName(name) {
     .trim();
 }
 
+function getStructureDetails(displayName, systemName) {
+  const name = displayName.replace(/[._]+/g, " ").replace(/\s+/g, " ").trim();
+  const normalized = normalizedName(name);
+  const curated = Object.entries(partCatalog).find(([key]) =>
+    normalized.includes(key) || key.includes(normalized),
+  )?.[1];
+  if (curated) {
+    return {
+      name: curated.name,
+      system: curated.system,
+      summary: curated.summary,
+      fact: curated.fact,
+      link: `https://medlineplus.gov/search/?query=${encodeURIComponent(curated.name)}`,
+    };
+  }
+  let summary;
+  let link;
+  if (/(brain|cerebr|medulla|spinal|nerve|neuron|optic|cochlea)/.test(normalized)) {
+    summary = `${name} is part of the nervous system. Nervous structures transmit, process, or coordinate signals that support sensation, movement, and automatic body functions.`;
+    link = `https://www.ncbi.nlm.nih.gov/books/NBK537116/?term=${encodeURIComponent(name)}`;
+  } else if (/(arter|vein|aorta|vena|vessel|pulmonary)/.test(normalized)) {
+    summary = `${name} is a blood-vessel structure of the circulatory system. It helps carry blood between the heart and tissues, or between the heart and lungs.`;
+    link = `https://medlineplus.gov/bloodvessels.html`;
+  } else if (/(muscle|tendon|deltoid|biceps|pector|quadriceps|abdom|calf)/.test(normalized)) {
+    summary = `${name} is a muscle or muscle-related structure. It contributes to movement, posture, stability, or force transfer through the musculoskeletal system.`;
+    link = `https://medlineplus.gov/muscles.html`;
+  } else if (/(bone|skull|rib|vertebra|spine|pelvis|humerus|femur|joint|cartilage)/.test(normalized)) {
+    summary = `${name} is a bone or joint structure in the musculoskeletal system. It helps support the body, protect organs, enable movement, or transfer load.`;
+    link = `https://medlineplus.gov/bones.html`;
+  } else if (/(lung|liver|kidney|stomach|pancreas|spleen|colon|intestin|bladder|gall|thymus|heart|digest|respir|urinar|lymph)/.test(normalized)) {
+    summary = `${name} is an anatomical organ or organ-related structure. It contributes to organ-system functions such as breathing, circulation, digestion, filtration, immunity, or storage.`;
+    link = `https://medlineplus.gov/search/?query=${encodeURIComponent(name)}`;
+  } else {
+    summary = `${name} is a named anatomical structure in this 3D atlas. It can be identified in relation to neighbouring tissues and viewed from different angles for study.`;
+    link = `https://en.wikipedia.org/wiki/${encodeURIComponent(name.replaceAll(" ", "_"))}`;
+  }
+  return {
+    name,
+    system: systemName || "Anatomical structure",
+    summary,
+    fact: "Structure names and relations can vary by anatomical atlas; use the reference link to confirm terminology.",
+    link,
+  };
+}
+
 function setDetails(mesh) {
   selectedMesh = mesh;
   const displayName = mesh.name.replace(/[._]+/g, " ").replace(/\s+/g, " ").trim();
-  const normalized = normalizedName(displayName);
-  let details = partCatalog[normalized];
-  if (!details) {
-    const matchingKey = Object.keys(partCatalog).find((key) =>
-      normalized.includes(key) || key.includes(normalized),
-    );
-    details = matchingKey ? partCatalog[matchingKey] : null;
+  const details = getStructureDetails(
+    displayName,
+    modelCatalog[activeSystemId]?.label,
+  );
+  detailName.textContent = details.name;
+  detailSystem.textContent = details.system;
+  detailFunction.textContent = details.summary;
+  detailFact.textContent = details.fact;
+  if (detailLink) {
+    detailLink.href = details.link;
+    detailLink.hidden = false;
   }
-  detailName.textContent = details?.name || displayName || "Anatomical structure";
-  detailSystem.textContent = details?.system || modelCatalog[activeSystemId].label;
-  detailFunction.textContent = details?.summary
-    || "This structure is part of the 3D anatomy model. A reviewed learning note for this specific structure is not yet available in WellNote.";
-  detailFact.textContent = details?.fact
-    || "Use the structure name to find a trusted anatomy reference; this model view is for learning and identification only.";
   for (const row of list.querySelectorAll(".body-part-button")) {
     const active = row.dataset.structureIndex === String(structures.indexOf(mesh));
     row.classList.toggle("selected", active);
@@ -456,6 +500,133 @@ function finishLoading(model, systemId, thisRequest) {
   renderList();
 }
 
+function loadSketchfabSection(systemId) {
+  const system = modelCatalog[systemId];
+  if (!system?.embed) return false;
+  activeSystemId = systemId;
+  activeModel = null;
+  structures = [];
+  canvas.style.display = "none";
+  controls.enabled = false;
+  emptyStage.hidden = true;
+  loading.hidden = true;
+  errorNotice.hidden = true;
+  if (imageViewport) imageViewport.remove();
+  imageViewport = null;
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "sketchfab-anatomy";
+  const iframe = document.createElement("iframe");
+  iframe.title = system.label;
+  iframe.allow = "autoplay; fullscreen; xr-spatial-tracking";
+  iframe.src = `https://sketchfab.com/models/${system.embed}/embed?autostart=1&ui_theme=light&ui_infos=0&ui_watermark=0&ui_controls=1&dnt=1`;
+  wrapper.append(iframe);
+  stage.append(wrapper);
+  imageViewport = wrapper;
+
+  if (window.Sketchfab) {
+    const client = new window.Sketchfab(iframe);
+    client.init(system.embed, {
+      success: (api) => {
+        api.start();
+        api.addEventListener("annotationSelect", (annotationIndex) => {
+          api.getAnnotation(annotationIndex, (annotationError, annotation) => {
+            if (annotationError || !annotation?.name) return;
+            const details = getStructureDetails(annotation.name, system.label);
+            detailName.textContent = details.name;
+            detailSystem.textContent = details.system;
+            detailFunction.textContent = details.summary;
+            detailFact.textContent = details.fact;
+            if (detailLink) {
+              detailLink.href = details.link;
+              detailLink.hidden = false;
+            }
+          });
+        });
+      },
+      error: () => {
+        viewerSystem.textContent = "MODEL UNAVAILABLE";
+        detailFact.textContent = "This Sketchfab model could not be displayed. Use the structure list or try again with internet access.";
+      },
+    });
+  }
+
+  const structurePresets = {
+    organs: [
+      ["Heart", "Circulatory system"],
+      ["Lungs", "Respiratory system"],
+      ["Liver", "Digestive system"],
+      ["Stomach", "Digestive system"],
+      ["Pancreas", "Digestive system"],
+      ["Spleen", "Immune system"],
+      ["Kidneys", "Urinary system"],
+      ["Small intestine", "Digestive system"],
+      ["Large intestine", "Digestive system"],
+      ["Bladder", "Urinary system"],
+    ],
+    nervous: [
+      ["Brain", "Central nervous system"],
+      ["Spinal cord", "Central nervous system"],
+      ["Cervical nerves", "Peripheral nervous system"],
+      ["Arm nerves", "Peripheral nervous system"],
+      ["Thoracic nerves", "Peripheral nervous system"],
+      ["Lumbar nerves", "Peripheral nervous system"],
+      ["Sacral nerves", "Peripheral nervous system"],
+      ["Sciatic nerve", "Peripheral nervous system"],
+    ],
+    lymphatic: [
+      ["Lymph nodes", "Lymphatic system"],
+      ["Lymph vessels", "Lymphatic system"],
+      ["Thymus", "Immune system"],
+      ["Spleen", "Immune system"],
+      ["Thoracic duct", "Lymphatic system"],
+      ["Peyer patches", "Immune system"],
+      ["Tonsils", "Immune system"],
+    ],
+  };
+  structures = (structurePresets[systemId] || []).map(([name, systemName]) => ({
+    name,
+    systemName,
+  }));
+  list.replaceChildren();
+  listCount.textContent = String(structures.length);
+  for (const item of structures) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "body-part-button";
+    row.dataset.structureName = item.name;
+    row.innerHTML = `<span>${item.name}</span>`;
+    row.addEventListener("click", () => {
+      const details = getStructureDetails(item.name, item.systemName);
+      detailName.textContent = details.name;
+      detailSystem.textContent = details.system;
+      detailFunction.textContent = details.summary;
+      detailFact.textContent = details.fact;
+      if (detailLink) {
+        detailLink.href = details.link;
+        detailLink.hidden = false;
+      }
+    });
+    list.append(row);
+  }
+  listEmpty.hidden = true;
+  moreButton.hidden = true;
+  search.disabled = false;
+  search.placeholder = "Search structure";
+  search.value = "";
+  viewerSystem.textContent = "INTERACTIVE 3D MODEL";
+  viewerTitle.textContent = system.label;
+  detailName.textContent = system.label;
+  detailSystem.textContent = "ANATOMY EXPLORER";
+  detailFunction.textContent = system.description;
+  detailFact.textContent = "Use the model controls to rotate and zoom. Select a listed structure or an available model region to view details.";
+  if (detailLink) detailLink.hidden = true;
+  if (stageBadge) stageBadge.textContent = "Interactive Sketchfab 3D";
+  if (stageInstruction) stageInstruction.innerHTML = "Drag to rotate<small>Scroll or pinch to zoom</small>";
+
+  return true;
+}
+
 function loadSystem(systemId) {
   const system = modelCatalog[systemId];
   if (!system) return;
@@ -491,6 +662,8 @@ function loadSystem(systemId) {
     card.classList.toggle("active", selected);
     card.setAttribute("aria-pressed", String(selected));
   }
+
+  if (loadSketchfabSection(systemId)) return;
 
   loader.load(
     system.model,

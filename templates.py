@@ -361,6 +361,7 @@ def body_verse_page(language="en", current_url="/"):
             "description": localized(system["description"]),
             "model": model_url,
             "size": system["size"],
+            "embed": system.get("embed"),
         }
         system_cards.append(
             f'<button type="button" class="anatomy-system-card" '
@@ -394,7 +395,7 @@ def body_verse_page(language="en", current_url="/"):
           <span class="eyebrow" data-detail-system>{e(localized("ANATOMY EXPLORER"))}</span>
           <h2 data-detail-name>{e(localized("No structure selected"))}</h2>
           <div class="body-detail-section"><span class="body-detail-icon">✳</span><div><h3>{e(localized("What it does"))}</h3><p data-detail-function>{e(localized("Select a structure in the 3D model or list to view its learning notes."))}</p></div></div>
-          <div class="body-detail-fact"><span class="eyebrow">{e(localized("LEARN A LITTLE MORE"))}</span><p data-detail-fact>{e(localized("Notes are available for selected common structures; other model labels are shown without unverified descriptions."))}</p></div>
+          <div class="body-detail-fact"><span class="eyebrow">{e(localized("LEARN A LITTLE MORE"))}</span><p data-detail-fact>{e(localized("Notes are available for selected common structures; other model labels are shown with an introductory description and a trusted reference."))}</p><a class="body-detail-link" data-detail-link hidden target="_blank" rel="noopener noreferrer">{e(localized("Read a detailed reference"))} ↗</a></div>
         </div>
         <div class="body-part-navigation"><div class="anatomy-list-heading"><span class="eyebrow">{e(localized("MODEL STRUCTURES"))}</span><span data-structure-count>0</span></div><label class="anatomy-search-label" for="anatomy-search">{e(localized("Search this model"))}</label><input id="anatomy-search" class="anatomy-search" type="search" data-structure-search disabled placeholder="{e(localized("Choose a system first"))}"><p class="anatomy-list-empty" data-list-empty>{e(localized("Choose a system to load its structure list."))}</p><div class="body-part-list" data-structure-list role="list"></div><button type="button" class="anatomy-more-button" data-show-more hidden>{e(localized("Show more structures"))}</button></div>
       </aside>
@@ -404,7 +405,8 @@ def body_verse_page(language="en", current_url="/"):
     <script type="application/json" id="body-verse-models">{models_json}</script>
     <script type="application/json" id="body-verse-catalog">{catalog_json}</script>
     <script type="importmap">{{"imports":{{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"}}}}</script>
-    <script type="module" src="/static/body-verse.js?v=20261124-real-3d-mesh-selection"></script>"""
+    <script src="https://static.sketchfab.com/api/sketchfab-viewer-1.12.1.js" defer></script>
+    <script type="module" src="/static/body-verse.js?v=20261124-sketchfab-sections"></script>"""
     return layout(
         "Body Verse",
         content,
