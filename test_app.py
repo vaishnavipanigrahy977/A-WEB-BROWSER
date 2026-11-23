@@ -230,6 +230,12 @@ class MedicalAppTests(unittest.TestCase):
             search = request(query="q=malaria", cookie=f"{LANGUAGE_COOKIE_NAME}=hi")
         self.assertIn('action="/saved/add-topic" method="post"', search["body"])
         self.assertIn('name="topic" value="Malaria"', search["body"])
+        header_position = search["body"].index('class="reference-intro-header"')
+        save_control_position = search["body"].index('action="/saved/add-topic"', header_position)
+        self.assertLess(
+            save_control_position,
+            search["body"].index("Malaria is caused by parasites."),
+        )
 
         added = request(
             "/saved/add-topic",
@@ -240,6 +246,14 @@ class MedicalAppTests(unittest.TestCase):
         self.assertTrue(added["status"].startswith("303"))
         self.assertEqual(added["headers"]["Location"], "/saved")
         token = wellnote_app.external_saved_token("Malaria")
+        with patch("app.search_medlineplus", return_value=([malaria], None)):
+            already_saved = request(
+                query="q=malaria",
+                cookie=f"{LANGUAGE_COOKIE_NAME}=hi; {COOKIE_NAME}={token}",
+            )
+        intro = already_saved["body"].index('class="reference-intro-header"')
+        remove_position = already_saved["body"].index('action="/saved/remove-topic"', intro)
+        self.assertLess(remove_position, already_saved["body"].index("Malaria is caused by parasites."))
         saved_page = request(
             "/saved",
             cookie=f"{LANGUAGE_COOKIE_NAME}=hi; {COOKIE_NAME}={token}",

@@ -32,6 +32,17 @@
     margin-top: 0.75rem;
 }
 
+.reference-intro-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.reference-intro-header .topic-save-action {
+    margin-top: 0;
+}
+
 @media (max-width: 760px) {
     .language-switcher {
         order: 4;

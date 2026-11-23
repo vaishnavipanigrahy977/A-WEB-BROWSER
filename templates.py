@@ -77,12 +77,12 @@ def reference_results(query, results, error=None, saved_topics=(), language="en"
             f'<p>{e(error)}</p>' if error else
             "<p>MedlinePlus did not find a matching health topic. Try a broader search directly on the MedlinePlus website.</p>"
         )
-        return f"""<section class="content-panel external-fallback"><span class="source-icon">↗</span><div><span class="eyebrow">MEDLINEPLUS REFERENCE</span><h3>No reviewed Wellnote guide for “{e(query)}”</h3>{detail}<p>We won’t guess at symptoms or treatment. MedlinePlus is the U.S. National Library of Medicine’s health information service.</p><a class="button button-dark" href="https://medlineplus.gov/" target="_blank" rel="noopener noreferrer">Visit MedlinePlus ↗</a>{saved_topic_button(query, saved_topics, language)}</div></section>"""
+        return f"""<section class="content-panel external-fallback"><span class="source-icon">↗</span><div><div class="reference-intro-header"><span class="eyebrow">MEDLINEPLUS REFERENCE</span>{saved_topic_button(query, saved_topics, language)}</div><h3>No reviewed Wellnote guide for “{e(query)}”</h3>{detail}<p>We won’t guess at symptoms or treatment. MedlinePlus is the U.S. National Library of Medicine’s health information service.</p><a class="button button-dark" href="https://medlineplus.gov/" target="_blank" rel="noopener noreferrer">Visit MedlinePlus ↗</a></div></section>"""
     items = "".join(
         f'<article class="content-panel reference-result"><span class="eyebrow">MEDLINEPLUS · NATIONAL LIBRARY OF MEDICINE</span><h3>{e(item["title"])}</h3><p>{e(item["summary"])}</p><a class="text-link" href="{e(item["url"])}" target="_blank" rel="noopener noreferrer">Read the full reference ↗</a>{saved_topic_button(item["title"], saved_topics, language)}</article>'
         for item in results
     )
-    return f'<div class="reference-results"><section class="content-panel reference-intro"><span class="eyebrow">TRUSTED HEALTH REFERENCES</span><h3>Information for “{e(query)}”</h3><p>These summaries are provided by MedlinePlus, a service of the U.S. National Library of Medicine. Open a source for its full article and references.</p></section>{items}</div>'
+    return f'<div class="reference-results"><section class="content-panel reference-intro"><div class="reference-intro-header"><span class="eyebrow">TRUSTED HEALTH REFERENCES</span>{saved_topic_button(query, saved_topics, language)}</div><h3>Information for “{e(query)}”</h3><p>These summaries are provided by MedlinePlus, a service of the U.S. National Library of Medicine. Open a source for its full article and references.</p></section>{items}</div>'
 
 
 def home_page(diseases, query="", external_results=None, external_error=None, language="en", current_url="/", saved_topics=()):
