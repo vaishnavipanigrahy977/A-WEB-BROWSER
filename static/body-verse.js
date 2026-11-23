@@ -23,6 +23,8 @@ const detailFunction = document.querySelector("[data-detail-function]");
 const detailFact = document.querySelector("[data-detail-fact]");
 const viewerTitle = document.querySelector("[data-viewer-title]");
 const viewerSystem = document.querySelector("[data-viewer-system]");
+const stageBadge = document.querySelector("[data-stage-badge]");
+const stageInstruction = document.querySelector("[data-stage-instruction]");
 
 let renderer;
 try {
@@ -68,6 +70,58 @@ let heartOverlay = null;
 let selectedMesh = null;
 let requestId = 0;
 let pointerStart = null;
+let imageMode = false;
+let imageScale = 1;
+let imagePan = { x: 0, y: 0 };
+let imageViewport = null;
+
+const IMAGE_SECTIONS = {
+  "whole-body": {
+    src: "/static/whole-body.avif",
+    hotspots: [
+      ["Brain", 50, 8, "Nervous system", "The brain processes information and coordinates thought, movement, and automatic body functions."],
+      ["Heart", 50, 31, "Circulatory system", "The heart is a muscular pump that circulates blood through the lungs and the rest of the body."],
+      ["Lungs", 50, 27, "Respiratory system", "The lungs exchange oxygen and carbon dioxide between air and blood."],
+      ["Liver", 42, 43, "Digestive system", "The liver processes nutrients, makes bile, and helps break down substances in blood."],
+      ["Stomach", 58, 43, "Digestive system", "The stomach stores and mixes food with acid and enzymes during digestion."],
+      ["Kidneys", 50, 58, "Urinary system", "The kidneys filter blood, balance water and salts, and produce urine."],
+      ["Intestines", 50, 68, "Digestive system", "The intestines continue digestion and absorb nutrients and water."],
+    ],
+  },
+  organs: {
+    src: "/static/organs.jpg",
+    hotspots: [
+      ["Brain", 50, 9, "Nervous system", "The brain integrates sensation, thought, movement, and automatic functions."],
+      ["Heart", 50, 34, "Circulatory system", "The heart pumps blood through the lungs and the rest of the body."],
+      ["Lungs", 50, 29, "Respiratory system", "The lungs exchange oxygen and carbon dioxide."],
+      ["Liver", 43, 43, "Digestive system", "The liver processes nutrients and produces bile."],
+      ["Stomach", 57, 47, "Digestive system", "The stomach digests food with acid and enzymes."],
+      ["Kidneys", 50, 58, "Urinary system", "The kidneys filter blood and form urine."],
+      ["Intestines", 50, 68, "Digestive system", "The intestines absorb nutrients and water."],
+      ["Bladder", 50, 83, "Urinary system", "The bladder stores urine until it is passed from the body."],
+    ],
+  },
+  nervous: {
+    src: "/static/nervous-system.jpg",
+    hotspots: [
+      ["Brain", 50, 9, "Central nervous system", "The brain integrates information, thought, emotion, sensation, and movement."],
+      ["Spinal cord", 50, 38, "Central nervous system", "The spinal cord carries nerve signals between the brain and body."],
+      ["Cervical nerves", 42, 23, "Peripheral nervous system", "Cervical nerves help control the head, neck, shoulders, and arms."],
+      ["Arm nerves", 22, 49, "Peripheral nervous system", "Peripheral nerves carry signals to and from the arms and hands."],
+      ["Leg nerves", 50, 75, "Peripheral nervous system", "Peripheral nerves carry signals to and from the legs and feet."],
+    ],
+  },
+  lymphatic: {
+    src: "/static/lymphatic-system.jpg",
+    hotspots: [
+      ["Lymph nodes", 50, 21, "Lymphatic system", "Clusters of lymph nodes filter lymph and support immune responses."],
+      ["Thymus", 50, 31, "Immune system", "The thymus helps T lymphocytes mature."],
+      ["Spleen", 58, 49, "Immune system", "The spleen filters blood and helps the immune system respond."],
+      ["Pelvic nodes", 50, 66, "Lymphatic system", "Pelvic lymph nodes drain lymph from the lower abdomen and pelvis."],
+      ["Leg nodes", 50, 80, "Lymphatic system", "Lower-limb lymph vessels and nodes drain lymph back toward the trunk."],
+    ],
+  },
+};
 
 function resizeViewer() {
   const width = Math.max(stage.clientWidth, 1);
@@ -75,6 +129,125 @@ function resizeViewer() {
   renderer.setSize(width, height, false);
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
+}
+
+function applyImageTransform() {
+  if (!imageViewport) return;
+  const frame = imageViewport.querySelector(".anatomy-image-frame");
+  if (frame) {
+    frame.style.transform = `translate(${imagePan.x}px, ${imagePan.y}px) scale(${imageScale})`;
+  }
+}
+
+function setImageDetails(name, system, summary) {
+  detailName.textContent = name;
+  detailSystem.textContent = system;
+  detailFunction.textContent = summary;
+  detailFact.textContent = "Use the zoom controls or scroll to inspect this anatomical region more closely.";
+  for (const hotspot of imageViewport?.querySelectorAll(".anatomy-hotspot") || []) {
+    hotspot.classList.toggle("selected", hotspot.dataset.name === name);
+  }
+  for (const row of list.querySelectorAll(".body-part-button")) {
+    row.classList.toggle("selected", row.dataset.structureName === name);
+    row.setAttribute("aria-pressed", String(row.dataset.structureName === name));
+  }
+}
+
+function loadImageSection(systemId) {
+  const section = IMAGE_SECTIONS[systemId];
+  if (!section) return false;
+  imageMode = true;
+  stage.classList.add("image-anatomy");
+  canvas.style.display = "none";
+  controls.enabled = false;
+  emptyStage.hidden = true;
+  loading.hidden = true;
+  errorNotice.hidden = true;
+  search.disabled = false;
+  search.placeholder = "Search structure";
+  search.value = "";
+  if (imageViewport) imageViewport.remove();
+  imageScale = 1;
+  imagePan = { x: 0, y: 0 };
+
+  imageViewport = document.createElement("div");
+  imageViewport.className = "anatomy-image-viewport";
+  const image = document.createElement("img");
+  image.src = section.src;
+  image.alt = modelCatalog[systemId].label + " anatomical illustration";
+  image.draggable = false;
+  const imageFrame = document.createElement("div");
+  imageFrame.className = "anatomy-image-frame";
+  imageFrame.append(image);
+  imageViewport.append(imageFrame);
+
+  for (const [name, x, y, system, summary] of section.hotspots) {
+    const hotspot = document.createElement("button");
+    hotspot.type = "button";
+    hotspot.className = "anatomy-hotspot";
+    hotspot.dataset.name = name;
+    hotspot.style.left = `${x}%`;
+    hotspot.style.top = `${y}%`;
+    hotspot.setAttribute("aria-label", `Select ${name}`);
+    hotspot.innerHTML = '<span></span>';
+    hotspot.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setImageDetails(name, system, summary);
+    });
+    imageFrame.append(hotspot);
+  }
+
+  stage.append(imageViewport);
+  applyImageTransform();
+  imageViewport.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    imageScale = Math.max(1, Math.min(3.5, imageScale + (event.deltaY < 0 ? 0.12 : -0.12)));
+    applyImageTransform();
+  }, { passive: false });
+
+  let dragStart = null;
+  imageViewport.addEventListener("pointerdown", (event) => {
+    if (event.target.closest(".anatomy-hotspot")) return;
+    dragStart = { x: event.clientX, y: event.clientY, panX: imagePan.x, panY: imagePan.y };
+    imageViewport.setPointerCapture(event.pointerId);
+  });
+  imageViewport.addEventListener("pointermove", (event) => {
+    if (!dragStart) return;
+    imagePan.x = dragStart.panX + event.clientX - dragStart.x;
+    imagePan.y = dragStart.panY + event.clientY - dragStart.y;
+    applyImageTransform();
+  });
+  imageViewport.addEventListener("pointerup", () => { dragStart = null; });
+  imageViewport.addEventListener("pointercancel", () => { dragStart = null; });
+
+  structures = section.hotspots.map(([, , , system, summary], index) =>
+    ({ name: section.hotspots[index][0], system, summary }),
+  );
+  listCount.textContent = String(structures.length);
+  list.replaceChildren();
+  for (const item of structures) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "body-part-button";
+    row.dataset.structureName = item.name;
+    row.setAttribute("aria-pressed", "false");
+    const label = document.createElement("span");
+    label.textContent = item.name;
+    row.append(label);
+    row.addEventListener("click", () => setImageDetails(item.name, item.system, item.summary));
+    list.append(row);
+  }
+  listEmpty.hidden = true;
+  moreButton.hidden = true;
+  viewerSystem.textContent = "ANATOMICAL ILLUSTRATION";
+  viewerTitle.textContent = modelCatalog[systemId].label;
+  if (stageBadge) stageBadge.textContent = "Anatomical illustration";
+  if (stageInstruction) stageInstruction.innerHTML = "Drag to pan<small>Click a structure to see its details</small>";
+  detailName.textContent = modelCatalog[systemId].label;
+  detailSystem.textContent = "ANATOMY EXPLORER";
+  detailFunction.textContent = modelCatalog[systemId].description;
+  detailFact.textContent = "Choose a highlighted region or a structure from the list to see its details.";
+  return true;
 }
 
 function normalizedName(name) {
@@ -89,7 +262,14 @@ function normalizedName(name) {
 function setDetails(mesh) {
   selectedMesh = mesh;
   const displayName = mesh.name.replace(/[._]+/g, " ").replace(/\s+/g, " ").trim();
-  const details = partCatalog[normalizedName(displayName)];
+  const normalized = normalizedName(displayName);
+  let details = partCatalog[normalized];
+  if (!details) {
+    const matchingKey = Object.keys(partCatalog).find((key) =>
+      normalized.includes(key) || key.includes(normalized),
+    );
+    details = matchingKey ? partCatalog[matchingKey] : null;
+  }
   detailName.textContent = details?.name || displayName || "Anatomical structure";
   detailSystem.textContent = details?.system || modelCatalog[activeSystemId].label;
   detailFunction.textContent = details?.summary
@@ -256,9 +436,6 @@ function finishLoading(model, systemId, thisRequest) {
   });
   fitModel(model);
   scene.add(model);
-  if (systemId === "whole-body") {
-    structures.push(...createHeartOverlay());
-  }
   activeSystemId = systemId;
   selectedMesh = null;
   structures.sort((left, right) => left.name.localeCompare(right.name));
@@ -267,6 +444,8 @@ function finishLoading(model, systemId, thisRequest) {
   search.placeholder = "Search structures";
   viewerSystem.textContent = "LICENSED 3D ANATOMY";
   viewerTitle.textContent = modelCatalog[systemId].label;
+  if (stageBadge) stageBadge.textContent = "Licensed 3D anatomy";
+  if (stageInstruction) stageInstruction.innerHTML = "Drag to rotate<small>Click a structure to see its details</small>";
   emptyStage.hidden = true;
   loading.hidden = true;
   errorNotice.hidden = true;
@@ -282,6 +461,12 @@ function loadSystem(systemId) {
   if (!system) return;
   const thisRequest = ++requestId;
   if (activeModel) disposeModel(activeModel);
+  if (imageViewport) imageViewport.remove();
+  imageViewport = null;
+  imageMode = false;
+  stage.classList.remove("image-anatomy");
+  canvas.style.display = "";
+  controls.enabled = true;
   activeModel = null;
   activeSystemId = systemId;
   structures = [];
@@ -334,6 +519,13 @@ for (const card of systemCards) {
 }
 search.addEventListener("input", () => {
   visibleCount = pageSize;
+  if (imageMode) {
+    const query = normalizedName(search.value);
+    for (const row of list.querySelectorAll(".body-part-button")) {
+      row.hidden = query && !normalizedName(row.dataset.structureName).includes(query);
+    }
+    return;
+  }
   renderList();
 });
 moreButton.addEventListener("click", () => {
@@ -343,6 +535,18 @@ moreButton.addEventListener("click", () => {
 
 for (const button of document.querySelectorAll("[data-camera]")) {
   button.addEventListener("click", () => {
+    if (imageMode) {
+      if (button.dataset.camera === "reset") {
+        imageScale = 1;
+        imagePan = { x: 0, y: 0 };
+      } else {
+        imageScale = Math.max(1, Math.min(3.5,
+          imageScale + (button.dataset.camera === "zoom-in" ? 0.25 : -0.25),
+        ));
+      }
+      applyImageTransform();
+      return;
+    }
     if (button.dataset.camera === "reset" && activeModel) {
       fitModel(activeModel);
       return;

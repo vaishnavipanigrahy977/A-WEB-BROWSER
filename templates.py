@@ -374,7 +374,7 @@ def body_verse_page(language="en", current_url="/"):
     models_json = json.dumps(model_data, ensure_ascii=False).replace("<", "\\u003c")
     content = f"""<section class="simple-hero body-verse-hero"><a class="back-link" href="/study">{e(localized("← Study room"))}</a><span class="eyebrow">{e(localized("INTERACTIVE ANATOMY"))}</span><h1>Body Verse<span class="brand-period">.</span></h1><p>{e(localized("Explore the human body"))}</p></section>
     <section class="anatomy-systems" aria-label="{e(localized("Choose an anatomy system"))}">
-      <div class="anatomy-section-heading"><div><span class="eyebrow">{e(localized("EXPLORE BY SYSTEM"))}</span><h2>{e(localized("Choose a body system"))}</h2></div><p>{e(localized("Select a system to load its detailed 3D model. Models load on demand."))}</p></div>
+      <div class="anatomy-section-heading"><div><span class="eyebrow">{e(localized("EXPLORE BY SYSTEM"))}</span><h2>{e(localized("Choose a body system"))}</h2></div><p>{e(localized("Choose a system to load its detailed 3D model. Models load on demand."))}</p></div>
       <div class="anatomy-system-grid">{"".join(system_cards)}</div>
     </section>
     <section class="body-verse-explorer" aria-label="{e(localized("Interactive anatomy explorer"))}">
@@ -385,8 +385,8 @@ def body_verse_page(language="en", current_url="/"):
           <div class="body-stage-empty" data-body-empty><span class="stage-orbit">↻</span><strong>{e(localized("Choose a system to begin"))}</strong><small>{e(localized("Drag to rotate · Scroll to zoom · Click a structure for details"))}</small></div>
           <div class="body-stage-loading" data-body-loading hidden><span class="anatomy-spinner"></span><strong data-loading-title>{e(localized("Preparing 3D anatomy"))}</strong><small data-loading-progress>{e(localized("Connecting to the model library…"))}</small></div>
           <div class="body-stage-error" data-body-error hidden role="alert"></div>
-          <div class="body-stage-caption"><span class="stage-orbit">↻</span><span>{e(localized("Drag to rotate"))}<small>{e(localized("Click a structure to see its details"))}</small></span></div>
-          <span class="stage-badge">{e(localized("Licensed 3D anatomy"))}</span>
+          <div class="body-stage-caption"><span class="stage-orbit">↻</span><span data-stage-instruction>{e(localized("Drag to rotate"))}<small>{e(localized("Click a structure to see its details"))}</small></span></div>
+          <span class="stage-badge" data-stage-badge>{e(localized("Licensed 3D anatomy"))}</span>
         </div>
       </div>
       <aside class="body-verse-side-panel" aria-label="{e(localized("Selected anatomy details"))}">
@@ -404,7 +404,7 @@ def body_verse_page(language="en", current_url="/"):
     <script type="application/json" id="body-verse-models">{models_json}</script>
     <script type="application/json" id="body-verse-catalog">{catalog_json}</script>
     <script type="importmap">{{"imports":{{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"}}}}</script>
-    <script type="module" src="/static/body-verse.js?v=20261124-real-anatomy"></script>"""
+    <script type="module" src="/static/body-verse.js?v=20261124-real-3d-mesh-selection"></script>"""
     return layout(
         "Body Verse",
         content,

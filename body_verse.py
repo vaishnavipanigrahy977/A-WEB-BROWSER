@@ -9,7 +9,7 @@ MODEL_BASE_URL = (
 SYSTEMS = {
     "whole-body": {
         "label": "Whole body",
-        "description": "A realistic licensed overview of the major visceral organs.",
+        "description": "Explore the major visceral organs in a real rotatable 3D model.",
         "model": "VisceralSystem100.fbx",
         "size": "18 MB",
     },

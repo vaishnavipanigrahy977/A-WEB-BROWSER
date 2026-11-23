@@ -136,16 +136,22 @@ class MedicalAppTests(unittest.TestCase):
             'data-detail-fact',
             'href="/static/body-verse.css"',
             'type="importmap"',
-            'type="module" src="/static/body-verse.js?v=',
+            'type="module" src="/static/body-verse.js?v=20261124-real-3d-mesh-selection"',
             "OrbitControls",
             "FBXLoader",
             "Raycaster",
             "Z-Anatomy",
             "BodyParts3D",
             "CC BY-SA 4.0",
+            "whole-body.avif",
+            "organs.jpg",
+            "nervous-system.jpg",
+            "lymphatic-system.jpg",
         ):
             if expected in (
                 "OrbitControls", "FBXLoader", "Raycaster",
+                "whole-body.avif", "organs.jpg",
+                "nervous-system.jpg", "lymphatic-system.jpg",
             ):
                 self.assertIn(expected, request("/static/body-verse.js")["body"])
             else:
