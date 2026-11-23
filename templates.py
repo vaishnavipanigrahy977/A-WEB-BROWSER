@@ -404,7 +404,7 @@ def body_verse_page(language="en", current_url="/"):
     <script type="application/json" id="body-verse-models">{models_json}</script>
     <script type="application/json" id="body-verse-catalog">{catalog_json}</script>
     <script type="importmap">{{"imports":{{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"}}}}</script>
-    <script type="module" src="/static/body-verse.js"></script>"""
+    <script type="module" src="/static/body-verse.js?v=20261124-real-anatomy"></script>"""
     return layout(
         "Body Verse",
         content,

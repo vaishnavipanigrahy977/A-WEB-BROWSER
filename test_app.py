@@ -136,22 +136,16 @@ class MedicalAppTests(unittest.TestCase):
             'data-detail-fact',
             'href="/static/body-verse.css"',
             'type="importmap"',
-            'type="module" src="/static/body-verse.js"',
+            'type="module" src="/static/body-verse.js?v=',
             "OrbitControls",
             "FBXLoader",
             "Raycaster",
-            "createWholeBody",
-            "Brain",
-            "Heart",
-            "Right kidney",
-            "Liver",
             "Z-Anatomy",
             "BodyParts3D",
             "CC BY-SA 4.0",
         ):
             if expected in (
-                "OrbitControls", "FBXLoader", "Raycaster", "createWholeBody",
-                "Brain", "Heart", "Right kidney", "Liver",
+                "OrbitControls", "FBXLoader", "Raycaster",
             ):
                 self.assertIn(expected, request("/static/body-verse.js")["body"])
             else:
