@@ -114,6 +114,25 @@ class MedicalAppTests(unittest.TestCase):
         self.assertIn(EXAM_GUIDES["neet"], result["body"])
         self.assertIn("Your study buddy", result["body"])
         self.assertTrue(make_response("AAMC") == EXAM_GUIDES["aamc"])
+
+    def test_voice_tutor_speaks_typed_prompt_answers(self):
+        study_home = request("/study")["body"]
+        self.assertIn("Read answer aloud", study_home)
+        self.assertIn("Stop audio", study_home)
+        self.assertIn("Select Read answer aloud", study_home)
+        self.assertNotIn("Ask by voice", study_home)
+        self.assertIn('/static/voice-tutor.js', study_home)
+
+        script = request("/static/voice-tutor.js")
+        self.assertTrue(script["status"].startswith("200"))
+        self.assertIn("SpeechSynthesisUtterance", script["body"])
+        self.assertNotIn("SpeechRecognition", script["body"])
+
+        result = request(
+            "/study/ask", method="POST",
+            form="prompt=What+is+the+powerhouse+of+the+cell%3F",
+        )
+        self.assertIn("mitochondrion", result["body"].casefold())
         self.assertIn("step by step", make_response("Help me with homework"))
         self.assertIn("personal symptoms", make_response("I have a symptom"))
 

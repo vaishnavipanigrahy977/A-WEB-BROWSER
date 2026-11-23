@@ -2,10 +2,12 @@
 
 Wellnote is a small, server-rendered medical learning app built with Python's
 standard library. Application logic, disease search, saved topics, study prompts,
-and practice-question checking run in Python; pages use HTML forms and CSS rather
-than JavaScript application code or third-party packages. The study buddy can
-connect to a configurable OpenAI-compatible chat-completions API for general
-conversation and study help.
+and practice-question checking run in Python; pages use HTML forms and CSS.
+A small browser script only connects to built-in speech-recognition and
+speech-playback features; tutor answers and app behavior remain server-side
+Python. No third-party Python packages are required. The study buddy can connect
+to a configurable OpenAI-compatible chat-completions API for general conversation
+and study help.
 
 ## Run locally
 
@@ -59,6 +61,10 @@ can be incomplete or incorrect. Wellnote does not guarantee comprehensive
 world knowledge. Provider errors are shown in the study buddy instead of being
 silently replaced with a canned answer.
 
+The study room's read-aloud controls use the browser's speech-synthesis feature.
+Availability and voice selection depend on the browser and its settings. Tutor
+questions are entered as text.
+
 ## What's included
 
 - Searchable disease guides with descriptions, common symptoms, prevention,
@@ -69,7 +75,8 @@ silently replaced with a canned answer.
   says so and offers MedlinePlus directly instead of inventing details.
 - A saved-topics list stored in a browser cookie.
 - A study room with rotating greetings, a configurable AI study companion (or
-  curated local replies when no AI provider is configured),
+  curated local replies when no AI provider is configured), and spoken answers
+  through browser speech features,
   introductory original practice questions, and answer explanations.
 - A study-buddy overview of all 13 essential vitamins, common deficiency
   findings, dietary sources, a link to NIH fact sheets, and clinical safety context.

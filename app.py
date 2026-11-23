@@ -1,4 +1,4 @@
-"""Python-only server-rendered health-learning MVP (no JavaScript application code)."""
+"""Python-led, server-rendered health-learning app."""
 
 from http import cookies
 from http import HTTPStatus
@@ -60,8 +60,17 @@ def application(environ, start_response):
     path = unquote(environ.get("PATH_INFO", "/"))
     saved = saved_slugs(environ)
 
-    if method == "GET" and path == "/static/style.css":
-        return respond(start_response, HTTPStatus.OK, (ROOT / "static" / "style.css").read_bytes(), content_type="text/css; charset=utf-8")
+    static_assets = {
+        "/static/style.css": ("style.css", "text/css; charset=utf-8"),
+        "/static/voice-tutor.js": ("voice-tutor.js", "text/javascript; charset=utf-8"),
+    }
+    if method == "GET" and path in static_assets:
+        filename, content_type = static_assets[path]
+        return respond(
+            start_response, HTTPStatus.OK,
+            (ROOT / "static" / filename).read_bytes(),
+            content_type=content_type,
+        )
 
     if method == "POST":
         form = parse_qs(environ.get("wsgi.input").read(int(environ.get("CONTENT_LENGTH") or "0")).decode("utf-8", "replace"))

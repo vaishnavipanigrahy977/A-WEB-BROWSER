@@ -1,4 +1,4 @@
-"""Escaped HTML rendering for the Python-only server-rendered app."""
+"""Escaped HTML rendering for the Python-led server-rendered app."""
 
 from html import escape
 import re
@@ -145,7 +145,8 @@ def study_page(diseases, greeting, response=None, question=None, selected=None, 
     if response:
         response_html = "<div class='chat-bubble reply'><span class='reply-label'>Study buddy</span>" + study_response_html(response) + "</div>"
     user_message = f"<div class='chat-bubble user-prompt'><span class='reply-label'>You asked</span><p>{e(prompt)}</p></div>" if prompt else ""
-    bot = f"""<section class="tutor-card"><div class="tutor-heading"><span class="bot-avatar">✳</span><div><strong>Your study buddy</strong><small>Ready when you are</small></div><span class="online-dot"></span></div><div class="chat-bubble"><p>{e(greeting)}</p></div>{user_message}{response_html}<p class="tutor-hint">Try: “Help me plan for NEET”, “Explain biology”, “Help with homework”, or “Give me a study strategy.”</p><form action="/study/ask" method="post" class="prompt-form"><label class="sr-only" for="study-prompt">Ask a study question</label><textarea id="study-prompt" name="prompt" rows="3" placeholder="Ask a study question…"></textarea><button class="button button-dark" type="submit">Send <span>→</span></button></form><p class="scope-note">{e(provider_note)} Confirm exam requirements with official sources.</p>{exam_links}</section>"""
+    voice_tools = """<div class="voice-tools"><button class="button button-outline" id="voice-read" type="button">Read answer aloud</button><button class="button button-outline" id="voice-stop" type="button">Stop audio</button></div><p class="voice-status" id="voice-status" role="status" aria-live="polite">Select Read answer aloud to hear the study buddy response.</p>"""
+    bot = f"""<section class="tutor-card"><div class="tutor-heading"><span class="bot-avatar">✳</span><div><strong>Your study buddy</strong><small>Ready when you are</small></div><span class="online-dot"></span></div><div class="chat-bubble"><p>{e(greeting)}</p></div>{user_message}{response_html}<p class="tutor-hint">Try: “Help me plan for NEET”, “Explain biology”, “Help with homework”, or “Give me a study strategy.”</p><form action="/study/ask" method="post" class="prompt-form"><label class="sr-only" for="study-prompt">Ask a study question</label><textarea id="study-prompt" name="prompt" rows="3" placeholder="Ask a study question…"></textarea><button class="button button-dark" type="submit">Send <span>→</span></button></form>{voice_tools}<p class="scope-note">{e(provider_note)} Confirm exam requirements with official sources.</p>{exam_links}</section>"""
     if selected:
         intro = f'<section class="simple-hero"><a class="back-link" href="/study">← Study room</a><span class="eyebrow">FOCUSED REVIEW · {e(selected["category"])}</span><h1>{e(selected["name"])}<span class="brand-period">.</span></h1><p>Take a moment with the essentials, then revisit the full guide when you’re ready.</p></section>'
         points = "".join(f'<li class="study-point"><span class="point-number">{index:02d}</span><p>{e(point)}</p></li>' for index, point in enumerate(selected["study_points"], 1))
@@ -160,6 +161,7 @@ def study_page(diseases, greeting, response=None, question=None, selected=None, 
         intro = '<section class="study-intro"><div><span class="eyebrow">A GENTLER WAY TO LEARN</span><h1>Welcome to your<br><span>study room.</span></h1><p>Short reviews, original practice, and a small study companion—no pressure, just a little more understanding.</p><a class="button button-dark" href="/study/question">Try a practice question →</a></div><div class="study-illustration" aria-hidden="true"><span class="study-plant">✳</span><span class="study-book">✎</span><span class="study-underline"></span></div></section>'
         main = f'<section class="study-content study-home"><div><div class="section-heading"><div><span class="eyebrow">YOUR TOPICS</span><h2>Choose what to review</h2><p>Essentials from each health guide.</p></div></div><div class="study-grid">{lesson_cards}</div><div class="exam-panel"><span class="eyebrow">EXAM STARTERS</span><h2>Preparing for an exam?</h2><p>Ask the study buddy about NEET, MCAT, or AAMC. For current exam details and syllabi, check the official provider.</p>{exam_links}</div></div>{bot}</section>{notice("Study, not a substitute.", "Study buddy replies are for education, not personal diagnosis or treatment. For your own symptoms or care, consult a qualified health professional.")}'
         content = intro + main
+    content += '<script src="/static/voice-tutor.js" defer></script>'
     return layout("Study room", content, "study")
 
 
