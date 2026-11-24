@@ -4,6 +4,7 @@ import random
 import re
 import json
 import os
+import base64
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote_plus
 from urllib.request import Request, urlopen
@@ -260,15 +261,22 @@ def create_flashcards(disease):
     return cards
 
 
-def create_reference_flashcards(topic, reference):
+def create_reference_flashcards(topic, reference, language="en"):
+    import translations
+
+    branches = translations.localize_reference_branches(
+        create_reference_mind_map(topic, reference),
+        topic,
+        language,
+    )
     return [
         {
             "category": branch["title"].upper(),
             "question": f"What does the MedlinePlus article say about {branch['title'].lower()} for {topic}?",
             "answer": branch["points"],
         }
-        for branch in create_reference_mind_map(topic, reference)
-        if branch["title"] != "Study questions"
+        for branch in branches
+        if branch["title"] != translations.translate("Study questions", language)
     ]
 
 
@@ -276,6 +284,7 @@ def compare_health_topic(topic, disease=None, reference=None, reference_error=No
     if disease:
         return {
             "name": disease["name"],
+            "slug": disease["slug"],
             "overview": [disease["summary"], disease["description"]],
             "symptoms": disease["symptoms"],
             "prevention": disease["prevention"],
@@ -316,7 +325,7 @@ def compare_health_topic(topic, disease=None, reference=None, reference_error=No
 
 
 AI_SYSTEM_PROMPT = (
-    "You are Wellnote's friendly study and general-purpose assistant. Answer the "
+    "You are WellNote's friendly study and general-purpose assistant. Answer the "
     "user's actual question clearly and helpfully, including general knowledge, "
     "medical education, exam study, business, practical questions, or harmless "
     "humor when asked. Explain uncertainty; do not claim perfect or exhaustive "
@@ -330,10 +339,127 @@ AI_TIMEOUT_SECONDS = 45
 
 
 def ai_provider_configured():
-    return bool(
-        os.environ.get("WELLNOTE_AI_API_KEY", "").strip()
-        and os.environ.get("WELLNOTE_AI_MODEL", "").strip()
-        and os.environ.get("WELLNOTE_AI_BASE_URL", "https://api.openai.com/v1").strip()
+    return all(_ai_configuration())
+
+
+class GeminiSpeechError(Exception):
+    """A safe, user-facing failure from Gemini text-to-speech."""
+
+
+def gemini_speech_configured():
+    return bool(os.environ.get("GEMINI_API_KEY", "").strip())
+
+
+def generate_gemini_speech(text, language="en"):
+    """Return Gemini's generated WAV bytes, or None when no Gemini key is set."""
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        return None
+    text = text.strip()
+    if not text or len(text) > 5000:
+        raise GeminiSpeechError("Speech text must contain 1 to 5000 characters.")
+
+    speech_styles = {
+        "en": "Speak clearly in a warm, friendly English tutor voice.",
+        "hi": "Speak clearly in natural Hindi with a Hindi (India) accent.",
+        "hinglish": "Speak naturally in conversational Hinglish with a clear Indian accent. Pronounce Hindi words naturally and English terms clearly.",
+    }
+    payload = json.dumps({
+        "model": os.environ.get("GEMINI_TTS_MODEL", "gemini-3.8-flash-tts").strip(),
+        "input": [{
+            "type": "user_input",
+            "content": [{
+                "type": "text",
+                "text": text,
+                "annotations": [{
+                    "type": "speech_metadata",
+                    "style": speech_styles.get(language, speech_styles["en"]),
+                }],
+            }],
+        }],
+        "response_format": {"type": "audio"},
+        "generation_config": {
+            "speech_config": [{"voice": "Kore"}],
+        },
+    }).encode("utf-8")
+    request = Request(
+        "https://generativelanguage.googleapis.com/v1beta/interactions",
+        data=payload,
+        headers={
+            "x-goog-api-key": api_key,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=AI_TIMEOUT_SECONDS) as response:
+            data = json.loads(response.read(15_000_001).decode("utf-8"))
+        output_audio = data.get("output_audio")
+        audio_data = output_audio.get("data") if isinstance(output_audio, dict) else None
+        if not audio_data:
+            audio_data = next(
+                (
+                    content.get("data")
+                    for step in reversed(data.get("steps", []))
+                    if step.get("type") == "model_output"
+                    for content in reversed(step.get("content", []))
+                    if content.get("type") == "audio" and content.get("data")
+                ),
+                None,
+            )
+        if not audio_data:
+            raise GeminiSpeechError("Gemini did not return speech audio.")
+        audio = base64.b64decode(audio_data, validate=True)
+        if len(audio) > 15_000_000 or not audio.startswith(b"RIFF"):
+            raise GeminiSpeechError("Gemini returned audio in an unsupported format.")
+        return audio
+    except HTTPError as exc:
+        status = exc.code
+        exc.close()
+        if status in (401, 403):
+            raise GeminiSpeechError(
+                "Gemini rejected the API key or does not allow this speech model."
+            ) from None
+        if status == 429:
+            raise GeminiSpeechError(
+                "Gemini is rate-limiting speech requests. Please try again later."
+            ) from None
+        raise GeminiSpeechError(
+            f"Gemini speech returned an HTTP {status} error."
+        ) from None
+    except (URLError, TimeoutError, OSError):
+        raise GeminiSpeechError(
+            "Gemini speech could not be reached. Check the connection and try again."
+        ) from None
+    except (AttributeError, KeyError, TypeError, ValueError, UnicodeDecodeError):
+        raise GeminiSpeechError(
+            "Gemini returned an unreadable speech response."
+        ) from None
+
+
+def _ai_configuration():
+    wellnote_key = os.environ.get("WELLNOTE_AI_API_KEY", "").strip()
+    gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if wellnote_key:
+        return (
+            wellnote_key,
+            os.environ.get("WELLNOTE_AI_MODEL", "").strip(),
+            os.environ.get("WELLNOTE_AI_BASE_URL", "https://api.openai.com/v1").strip(),
+        )
+    if gemini_key:
+        return (
+            gemini_key,
+            os.environ.get(
+                "GEMINI_MODEL",
+                os.environ.get("WELLNOTE_AI_MODEL", "gemini-2.5-flash"),
+            ).strip(),
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+        )
+    return (
+        "",
+        os.environ.get("WELLNOTE_AI_MODEL", "").strip(),
+        os.environ.get("WELLNOTE_AI_BASE_URL", "https://api.openai.com/v1").strip(),
     )
 
 
@@ -341,23 +467,21 @@ def _ai_endpoint(base_url):
     base = base_url.rstrip("/")
     if base.endswith("/chat/completions"):
         return base
+    if base.endswith("/openai"):
+        return base + "/chat/completions"
     if base.endswith("/v1"):
         return base + "/chat/completions"
     return base + "/v1/chat/completions"
 
 
-def generate_ai_response(prompt):
+def generate_ai_response(prompt, language="en"):
     """Call a configured OpenAI-compatible chat-completions service.
 
     Returns None only when no AI provider configuration is present. Provider
     failures return an explicit user-facing message rather than silently
     pretending that a local canned answer came from a model.
     """
-    api_key = os.environ.get("WELLNOTE_AI_API_KEY", "").strip()
-    model = os.environ.get("WELLNOTE_AI_MODEL", "").strip()
-    base_url = os.environ.get(
-        "WELLNOTE_AI_BASE_URL", "https://api.openai.com/v1"
-    ).strip()
+    api_key, model, base_url = _ai_configuration()
     if not api_key and not model:
         return None
     if not api_key or not model or not base_url:
@@ -367,10 +491,17 @@ def generate_ai_response(prompt):
             "WELLNOTE_AI_BASE_URL, then restart the app."
         )
 
+    language_instructions = {
+        "hi": "Respond in clear, natural Hindi written in Devanagari. Preserve WellNote and official names as written.",
+        "hinglish": "Respond in conversational Hinglish using Roman script. Preserve WellNote and official names as written.",
+    }
+    system_prompt = AI_SYSTEM_PROMPT
+    if language in language_instructions:
+        system_prompt += " " + language_instructions[language]
     payload = json.dumps({
         "model": model,
         "messages": [
-            {"role": "system", "content": AI_SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt},
         ],
     }).encode("utf-8")
@@ -408,13 +539,13 @@ def generate_ai_response(prompt):
         return "The AI provider returned an unreadable response. Please check the provider configuration and try again."
 
 
-def make_response(prompt):
+def make_response(prompt, language="en"):
     """Provide an educational response or a relevant trusted reference."""
     text = prompt.strip()
     lowered = text.casefold()
     if not text:
         return "Tell me a topic, exam, or question and we’ll take it one step at a time."
-    ai_response = generate_ai_response(text)
+    ai_response = generate_ai_response(text, language)
     if ai_response is not None:
         return ai_response
     study_intent = any(

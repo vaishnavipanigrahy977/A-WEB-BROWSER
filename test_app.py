@@ -1,15 +1,19 @@
 import unittest
 from io import BytesIO
+import base64
 import json
 import os
+import re
 from urllib.error import HTTPError
 from unittest.mock import patch
 from urllib.parse import quote_plus
 
 import app as wellnote_app
-from app import COOKIE_NAME, application
+import body_verse
+from app import COOKIE_NAME, LANGUAGE_COOKIE_NAME, application
 from medlineplus import search_medlineplus
 from study import EXAM_GUIDES, QUESTIONS, ai_provider_configured, generate_ai_response, make_response, next_question_id
+import translations
 
 
 def request(path="/", method="GET", query="", cookie="", form=""):
@@ -50,6 +54,290 @@ class MedicalAppTests(unittest.TestCase):
         self.assertNotIn("Type 2 diabetes</h3>", result["body"])
         self.assertIn("&lt;script&gt;", request(query="q=%3Cscript%3E")["body"])
 
+    def test_hindi_language_switcher_localizes_guides_and_remembers_choice(self):
+        english = request("/disease/asthma")
+        self.assertIn('href="/language?lang=hi&amp;next=%2Fdisease%2Fasthma"', english["body"])
+
+        switched = request(
+            "/language",
+            query="lang=hi&next=%2Fdisease%2Fasthma",
+        )
+        self.assertTrue(switched["status"].startswith("303"))
+        self.assertEqual(switched["headers"]["Location"], "/disease/asthma")
+        language_cookie = switched["headers"]["Set-Cookie"]
+        self.assertIn(f"{LANGUAGE_COOKIE_NAME}=hi", language_cookie)
+
+        hindi = request("/disease/asthma", cookie=f"{LANGUAGE_COOKIE_NAME}=hi")
+        for expected in ('<html lang="hi">', "अस्थमा (दमा)", "सामान्य लक्षण",
+                         "साँस में घरघराहट", "रोकथाम और जोखिम में कमी",
+                         "चिकित्सकीय सलाह का विकल्प नहीं", "अंग्रेज़ी",
+                         "WellNote", "मुख्य नेविगेशन"):
+            self.assertIn(expected, hindi["body"])
+        self.assertIn("National Heart, Lung, and Blood Institute", hindi["body"])
+        hindi_diabetes = request(
+            "/disease/type-2-diabetes", cookie=f"{LANGUAGE_COOKIE_NAME}=hi"
+        )["body"]
+        self.assertIn("Centers for Disease Control and Prevention", hindi_diabetes)
+        self.assertNotIn("Centers for Disease Control and रोकथाम", hindi_diabetes)
+
+        hindi_search = request(query="q=टाइप+2+मधुमेह", cookie=f"{LANGUAGE_COOKIE_NAME}=hi")
+        self.assertIn("टाइप 2 मधुमेह", hindi_search["body"])
+
+    def test_language_switcher_rejects_unsupported_and_external_redirects(self):
+        unsupported = request("/language", query="lang=fr")
+        self.assertTrue(unsupported["status"].startswith("400"))
+
+        switched = request(
+            "/language",
+            query="lang=hi&next=https%3A%2F%2Fexample.com",
+        )
+        self.assertEqual(switched["headers"]["Location"], "/")
+        back_to_english = request(
+            "/language",
+            query="lang=en&next=%2Fdisease%2Fasthma",
+        )
+        self.assertIn(f"{LANGUAGE_COOKIE_NAME}=en", back_to_english["headers"]["Set-Cookie"])
+
+    def test_hindi_switch_applies_to_study_tools_and_comparison(self):
+        language_cookie = f"{LANGUAGE_COOKIE_NAME}=hi"
+        study_home = request("/study", cookie=language_cookie)["body"]
+        self.assertIn("अध्ययन कक्ष", study_home)
+        self.assertIn("अभ्यास प्रश्न हल करें", study_home)
+
+        mind_map = request(
+            "/study/mind-map", query="topic=asthma", cookie=language_cookie
+        )["body"]
+        self.assertIn("माइंड मैप जनरेटर", mind_map)
+        self.assertIn("साँस में घरघराहट", mind_map)
+
+        flashcards = request(
+            "/study/flashcards", query="topic=asthma", cookie=language_cookie
+        )["body"]
+        self.assertIn("स्मार्ट फ्लैशकार्ड", flashcards)
+        self.assertIn("अस्थमा (दमा)", flashcards)
+
+        compared = request(
+            "/study/compare",
+            query="first=asthma&second=type-2-diabetes",
+            cookie=language_cookie,
+        )["body"]
+        self.assertIn("बीमारियों की तुलना", compared)
+        self.assertIn("एक दीर्घकालिक स्थिति", compared)
+        self.assertIn("टाइप 2 मधुमेह", compared)
+
+    def test_body_verse_has_real_3d_system_models_and_selectable_details(self):
+        page = request("/study/body-verse")
+        self.assertTrue(page["status"].startswith("200"))
+        for expected in (
+            "Body Verse",
+            "Explore the human body",
+            'class="body-verse-side-panel"',
+            "What it does",
+            'data-detail-fact',
+            'href="/static/body-verse.css"',
+            'type="importmap"',
+            'type="module" src="/static/body-verse.js?v=20261124-original-sketchfab-ui"',
+            "OrbitControls",
+            "FBXLoader",
+            "Raycaster",
+            "Z-Anatomy",
+            "BodyParts3D",
+            "CC BY-SA 4.0",
+            "0caae8f894cc40b69f3f78adf14b9665",
+            "fe69d7b1ed6f46a3bd0b6933b796092e",
+        ):
+            if expected in (
+                "OrbitControls", "FBXLoader", "Raycaster",
+                "whole-body.avif", "organs.jpg",
+                "nervous-system.jpg", "lymphatic-system.jpg",
+            ):
+                self.assertIn(expected, request("/static/body-verse.js")["body"])
+            else:
+                self.assertIn(expected, page["body"])
+        self.assertIn('href="/study/body-verse"', request("/study")["body"])
+        rendered_systems = re.findall(
+            r'<button[^>]+data-system-card="([^"]+)"',
+            page["body"],
+        )
+        self.assertEqual(rendered_systems, list(body_verse.SYSTEMS))
+        for system in body_verse.SYSTEMS.values():
+            with self.subTest(system=system["model"]):
+                self.assertIn(system["model"], page["body"])
+        self.assertNotIn("<svg", page["body"])
+
+        script = request("/static/body-verse.js")
+        self.assertTrue(script["status"].startswith("200"))
+        self.assertIn("pointerup", script["body"])
+        self.assertIn("loader.load", script["body"])
+        self.assertIn("data-structure-search", page["body"])
+        self.assertIn("data-detail-function", page["body"])
+        self.assertTrue(request("/static/body-verse.css")["status"].startswith("200"))
+
+    def test_body_verse_localizes_layer_details_in_hindi_and_hinglish(self):
+        cases = (
+            ("hi", "मानव शरीर को जानें", "महाधमनी", "फुफ्फुसीय शिराएँ",
+             "हृदय एक मांसपेशीय पंप है"),
+            ("hinglish", "Insaani body ko explore karein", "Aorta",
+             "Pulmonary veins", "Heart ek muscular pump hai"),
+        )
+        for language, title, artery, vein, heart_function in cases:
+            with self.subTest(language=language):
+                page = request(
+                    "/study/body-verse",
+                    cookie=f"{LANGUAGE_COOKIE_NAME}={language}",
+                )["body"]
+                self.assertIn(title, page)
+                self.assertIn(artery, page)
+                self.assertIn(vein, page)
+                self.assertIn(heart_function, page)
+
+    def test_hindi_and_hinglish_localize_quiz_and_flashcards(self):
+        cases = (
+            ("hi", "वायवीय श्वसन के दौरान ATP उत्पादन", "माइटोकॉन्ड्रियन",
+             "कार्ड 1 / 7", "एक दीर्घकालिक स्थिति"),
+            ("hinglish", "Aerobic respiration ke dauraan ATP", "Mitochondrion",
+             "Card 1 / 7", "Ek lambe samay tak rehne wali condition"),
+        )
+        for language, question_text, option_text, progress, summary in cases:
+            with self.subTest(language=language):
+                cookie = f"{LANGUAGE_COOKIE_NAME}={language}"
+                quiz = request("/study/question", cookie=cookie)["body"]
+                self.assertIn(question_text, quiz)
+                self.assertIn(option_text, quiz)
+                self.assertNotIn(
+                    "Which organelle is the main site of ATP production",
+                    quiz,
+                )
+                self.assertIn("WellNote", quiz)
+
+                flashcards = request(
+                    "/study/flashcards",
+                    query="topic=asthma",
+                    cookie=cookie,
+                )["body"]
+                self.assertIn(progress, flashcards)
+                self.assertIn(summary, flashcards)
+                self.assertNotIn(
+                    "A long-term condition that can make the airways inflamed",
+                    flashcards,
+                )
+
+    def test_every_practice_question_has_hindi_and_hinglish_copy(self):
+        for language in ("hi", "hinglish"):
+            for question in QUESTIONS:
+                localized = translations.localize_question(question, language)
+                with self.subTest(language=language, question=question["id"]):
+                    self.assertNotEqual(localized["question"], question["question"])
+                    self.assertEqual(len(localized["options"]), len(question["options"]))
+                    self.assertNotEqual(localized["explanation"], question["explanation"])
+
+    def test_external_reference_chrome_and_study_prompts_follow_selected_language(self):
+        language_cookie = f"{LANGUAGE_COOKIE_NAME}=hi"
+        source = [{
+            "title": "Zika virus",
+            "summary": "Zika is a virus spread by mosquitoes.",
+            "url": "https://medlineplus.gov/zika.html",
+        }]
+        with patch("app.search_medlineplus", return_value=(source, None)):
+            search = request(query="q=zika", cookie=language_cookie)["body"]
+        self.assertIn("विश्वसनीय स्वास्थ्य संदर्भ", search)
+        self.assertIn("“zika” के लिए जानकारी", search)
+        self.assertIn("Zika is a virus spread by mosquitoes.", search)
+        self.assertIn("मूल भाषा में दिख सकते हैं", search)
+        self.assertIn("WellNote", search)
+
+        with patch("app.search_medlineplus", return_value=([], None)):
+            mind_map = request(
+                "/study/mind-map",
+                query="topic=dyslexia",
+                cookie=language_cookie,
+            )["body"]
+        self.assertIn("dyslexia के लक्षणों की जानकारी नहीं थी", mind_map)
+        self.assertIn("विश्वसनीय स्रोत क्या कहता है", mind_map)
+        self.assertNotIn("Symptom details for dyslexia", mind_map)
+
+    def test_save_and_remove_topic_work_from_hindi_interface(self):
+        language_cookie = f"{LANGUAGE_COOKIE_NAME}=hi"
+        detail = request(
+            "/disease/type-2-diabetes", cookie=language_cookie
+        )["body"]
+        self.assertIn("＋ बाद के लिए सहेजें", detail)
+
+        saved = request(
+            "/saved/add/type-2-diabetes",
+            method="POST",
+            cookie=language_cookie,
+        )
+        self.assertTrue(saved["status"].startswith("303"))
+        self.assertEqual(saved["headers"]["Location"], "/saved")
+        self.assertIn(f"{COOKIE_NAME}=type-2-diabetes", saved["headers"]["Set-Cookie"])
+
+        saved_page = request(
+            "/saved",
+            cookie=f"{language_cookie}; {COOKIE_NAME}=type-2-diabetes",
+        )["body"]
+        self.assertIn("टाइप 2 मधुमेह", saved_page)
+        self.assertIn("सहेजे गए विषय", saved_page)
+
+        removed = request(
+            "/saved/remove/type-2-diabetes",
+            method="POST",
+            cookie=f"{language_cookie}; {COOKIE_NAME}=type-2-diabetes",
+        )
+        self.assertTrue(removed["status"].startswith("303"))
+        self.assertIn(f"{COOKIE_NAME}=", removed["headers"]["Set-Cookie"])
+
+    def test_topic_card_plus_adds_to_reading_list_in_hindi_and_hinglish(self):
+        for language, translated_name in (
+            ("en", "Asthma"),
+            ("hi", "अस्थमा (दमा)"),
+            ("hinglish", "Asthma (Dama)"),
+        ):
+            language_cookie = f"{LANGUAGE_COOKIE_NAME}={language}"
+            home = request("/", cookie=language_cookie)["body"]
+            self.assertIn(f'action="/saved/add/asthma" method="post"', home)
+            self.assertIn("Save to library" if language == "en" else (
+                "लाइब्रेरी में सहेजें" if language == "hi" else "Library mein save karein"
+            ), home)
+
+            added = request(
+                "/saved/add/asthma",
+                method="POST",
+                cookie=language_cookie,
+            )
+            self.assertTrue(added["status"].startswith("303"))
+            self.assertEqual(added["headers"]["Location"], "/saved")
+            saved_page = request(
+                "/saved",
+                cookie=f"{language_cookie}; {COOKIE_NAME}=asthma",
+            )["body"]
+            self.assertIn(translated_name, saved_page)
+            self.assertIn("♥", saved_page)
+
+    def test_hinglish_switcher_uses_roman_script_and_finds_local_guides(self):
+        switched = request(
+            "/language",
+            query="lang=hinglish&next=%2Fdisease%2Fasthma",
+        )
+        self.assertIn(f"{LANGUAGE_COOKIE_NAME}=hinglish", switched["headers"]["Set-Cookie"])
+
+        page = request(
+            "/disease/asthma",
+            cookie=f"{LANGUAGE_COOKIE_NAME}=hinglish",
+        )["body"]
+        self.assertIn('<html lang="hi-Latn">', page)
+        self.assertIn("Asthma (Dama)", page)
+        self.assertIn("Baad ke liye save karein", page)
+        self.assertIn("Saans mein ghargharahat", page)
+        self.assertNotIn("साँस में घरघराहट", page)
+
+        local_topic = request(
+            "/study/flashcards",
+            query="topic=Asthma+%28Dama%29&card=1",
+            cookie=f"{LANGUAGE_COOKIE_NAME}=hinglish",
+        )
+        self.assertIn("Saans mein ghargharahat", local_topic["body"])
+
     def test_unknown_disease_search_and_detail_link_to_medlineplus(self):
         medlineplus_result = [{
             "title": "Malaria",
@@ -65,8 +353,76 @@ class MedicalAppTests(unittest.TestCase):
         with patch("app.search_medlineplus", return_value=(medlineplus_result, None)):
             detail = request("/disease/malaria")
         self.assertTrue(detail["status"].startswith("200"))
-        self.assertIn("This condition is not in Wellnote", detail["body"])
+        self.assertIn("This condition is not in WellNote", detail["body"])
         self.assertNotIn("Common symptoms", detail["body"])
+
+    def test_external_disease_search_can_be_saved_and_removed_from_reading_list(self):
+        malaria = {
+            "title": "Malaria",
+            "summary": "Malaria is caused by parasites.",
+            "url": "https://medlineplus.gov/malaria.html",
+        }
+        with patch("app.search_medlineplus", return_value=([malaria], None)):
+            search = request(query="q=malaria", cookie=f"{LANGUAGE_COOKIE_NAME}=hi")
+        self.assertIn('action="/saved/add-topic" method="post"', search["body"])
+        self.assertIn('name="topic" value="Malaria"', search["body"])
+        header_position = search["body"].index('class="reference-intro-header"')
+        save_control_position = search["body"].index('action="/saved/add-topic"', header_position)
+        self.assertLess(
+            save_control_position,
+            search["body"].index("Malaria is caused by parasites."),
+        )
+
+        added = request(
+            "/saved/add-topic",
+            method="POST",
+            cookie=f"{LANGUAGE_COOKIE_NAME}=hi",
+            form="topic=Malaria",
+        )
+        self.assertTrue(added["status"].startswith("303"))
+        self.assertEqual(added["headers"]["Location"], "/saved")
+        token = wellnote_app.external_saved_token("Malaria")
+        with patch("app.search_medlineplus", return_value=([malaria], None)):
+            already_saved = request(
+                query="q=malaria",
+                cookie=f"{LANGUAGE_COOKIE_NAME}=hi; {COOKIE_NAME}={token}",
+            )
+        intro = already_saved["body"].index('class="reference-intro-header"')
+        remove_position = already_saved["body"].index('action="/saved/remove-topic"', intro)
+        self.assertLess(remove_position, already_saved["body"].index("Malaria is caused by parasites."))
+        saved_page = request(
+            "/saved",
+            cookie=f"{LANGUAGE_COOKIE_NAME}=hi; {COOKIE_NAME}={token}",
+        )["body"]
+        self.assertIn("Malaria", saved_page)
+        self.assertIn("सहेजा गया स्वास्थ्य विषय", saved_page)
+        self.assertIn('/saved/remove-topic', saved_page)
+
+        removed = request(
+            "/saved/remove-topic",
+            method="POST",
+            cookie=f"{LANGUAGE_COOKIE_NAME}=hi; {COOKIE_NAME}={token}",
+            form="topic=Malaria",
+        )
+        self.assertTrue(removed["status"].startswith("303"))
+        empty_page = request(
+            "/saved",
+            cookie=f"{LANGUAGE_COOKIE_NAME}=hi; {COOKIE_NAME}=",
+        )["body"]
+        self.assertIn("आपकी लाइब्रेरी तैयार है", empty_page)
+
+    def test_external_mind_map_and_flashcard_topics_can_be_saved(self):
+        article = {
+            "title": "Dyslexia",
+            "summary": "Dyslexia can affect reading and writing.",
+            "url": "https://medlineplus.gov/learningdisabilities.html",
+        }
+        with patch("app.search_medlineplus", return_value=([article], None)):
+            mind_map = request("/study/mind-map", query="topic=dyslexia")
+            flashcards = request("/study/flashcards", query="topic=dyslexia")
+        for result in (mind_map, flashcards):
+            self.assertIn('action="/saved/add-topic" method="post"', result["body"])
+            self.assertIn('name="topic" value="Dyslexia"', result["body"])
 
     def test_medlineplus_parser_strips_markup_and_rejects_untrusted_links(self):
         payload = b"""<?xml version="1.0"?>
@@ -126,6 +482,13 @@ class MedicalAppTests(unittest.TestCase):
         script = request("/static/voice-tutor.js")
         self.assertTrue(script["status"].startswith("200"))
         self.assertIn("SpeechSynthesisUtterance", script["body"])
+        self.assertIn('"hi-Latn": ["hi-IN", "hi", "en-IN"]', script["body"])
+        self.assertIn("utterance.voice = voice", script["body"])
+        self.assertIn("matchingVoice(await availableVoices())", script["body"])
+        self.assertIn('fetch("/study/speak"', script["body"])
+        self.assertIn("if (!browserSpeechAvailable)", script["body"])
+        self.assertIn("voiceGeminiEnabled", script["body"])
+        self.assertIn('samjhayein: "समझाएँ"', script["body"])
         self.assertNotIn("SpeechRecognition", script["body"])
 
         result = request(
@@ -135,6 +498,20 @@ class MedicalAppTests(unittest.TestCase):
         self.assertIn("mitochondrion", result["body"].casefold())
         self.assertIn("step by step", make_response("Help me with homework"))
         self.assertIn("personal symptoms", make_response("I have a symptom"))
+
+    def test_voice_status_explains_when_a_matching_localized_voice_is_missing(self):
+        for language, phrase in (
+            ("hi", "इस डिवाइस में"),
+            ("hinglish", "Is device par"),
+        ):
+            body = request(
+                "/study",
+                cookie=f"{LANGUAGE_COOKIE_NAME}={language}",
+            )["body"]
+            with self.subTest(language=language):
+                self.assertIn("data-voice-missing=", body)
+                self.assertIn(phrase, body)
+                self.assertIn("data-voice-hindi-name=", body)
 
     def test_mind_map_picker_and_reviewed_topic_map(self):
         picker = request("/study/mind-map")
@@ -350,7 +727,10 @@ class MedicalAppTests(unittest.TestCase):
 
         long_prompt = "biology " * 250
         captured = []
-        with patch("app.study.make_response", side_effect=lambda text: captured.append(text) or "Let’s study biology."):
+        with patch(
+            "app.study.make_response",
+            side_effect=lambda text, language="en": captured.append(text) or "Let’s study biology.",
+        ):
             result = request(
                 "/study/ask",
                 method="POST",
@@ -478,6 +858,147 @@ class MedicalAppTests(unittest.TestCase):
         self.assertEqual(captured["payload"]["messages"][1]["content"], "Tell me a funny joke")
         self.assertIn("never diagnose", captured["payload"]["messages"][0]["content"])
         self.assertEqual(captured["headers"]["Authorization"], "Bearer test-key-not-a-real-secret")
+
+        hindi_payload = {}
+
+        def capture_hindi_request(request, timeout):
+            hindi_payload["messages"] = json.loads(request.data.decode())["messages"]
+            return FakeResponse()
+
+        with patch.dict(os.environ, config, clear=True):
+            with patch("study.urlopen", side_effect=capture_hindi_request):
+                generate_ai_response("Explain a biology topic", "hi")
+        self.assertIn(
+            "Hindi written in Devanagari",
+            hindi_payload["messages"][0]["content"],
+        )
+
+    def test_gemini_api_key_configures_native_gemini_chat_endpoint(self):
+        response_body = json.dumps({
+            "choices": [{"message": {"content": "Gemini study answer"}}]
+        }).encode()
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def read(self, _limit):
+                return response_body
+
+        captured = {}
+
+        def fake_urlopen(request, timeout):
+            captured["url"] = request.full_url
+            captured["headers"] = request.headers
+            captured["payload"] = json.loads(request.data.decode())
+            return FakeResponse()
+
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-gemini-key"}, clear=True):
+            self.assertTrue(ai_provider_configured())
+            with patch("study.urlopen", side_effect=fake_urlopen):
+                answer = generate_ai_response("Explain photosynthesis")
+
+        self.assertEqual(answer, "Gemini study answer")
+        self.assertEqual(
+            captured["url"],
+            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+        )
+        self.assertEqual(captured["payload"]["model"], "gemini-2.5-flash")
+        self.assertEqual(
+            captured["headers"]["Authorization"],
+            "Bearer test-gemini-key",
+        )
+
+    def test_gemini_speech_returns_wav_and_uses_the_requested_language_style(self):
+        response_body = json.dumps({
+            "output_audio": {"data": base64.b64encode(b"RIFF-test-audio").decode()},
+        }).encode()
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def read(self, _limit):
+                return response_body
+
+        captured = {}
+
+        def fake_urlopen(request, timeout):
+            captured["url"] = request.full_url
+            captured["headers"] = request.headers
+            captured["payload"] = json.loads(request.data.decode())
+            return FakeResponse()
+
+        with patch.dict(
+            os.environ,
+            {"GEMINI_API_KEY": "test-gemini-key"},
+            clear=True,
+        ):
+            with patch("study.urlopen", side_effect=fake_urlopen):
+                audio = wellnote_app.study.generate_gemini_speech(
+                    "नमस्ते, जवाब सुनें।",
+                    "hi",
+                )
+
+        self.assertEqual(audio, b"RIFF-test-audio")
+        self.assertEqual(
+            captured["url"],
+            "https://generativelanguage.googleapis.com/v1beta/interactions",
+        )
+        self.assertEqual(captured["headers"]["X-goog-api-key"], "test-gemini-key")
+        self.assertEqual(captured["payload"]["model"], "gemini-3.8-flash-tts")
+        self.assertIn(
+            "Hindi (India) accent",
+            captured["payload"]["input"][0]["content"][0]["annotations"][0]["style"],
+        )
+
+    def test_gemini_speech_endpoint_returns_audio_and_validates_requests(self):
+        with patch(
+            "app.study.generate_gemini_speech",
+            return_value=b"RIFF-test-audio",
+        ) as generate:
+            response = request(
+                "/study/speak",
+                method="POST",
+                form=json.dumps({"text": "namaste", "language": "hinglish"}),
+            )
+        self.assertTrue(response["status"].startswith("200"))
+        self.assertEqual(response["headers"]["Content-Type"], "audio/wav")
+        self.assertEqual(response["body"], "RIFF-test-audio")
+        generate.assert_called_once_with("namaste", "hinglish")
+
+        too_long = request(
+            "/study/speak",
+            method="POST",
+            form=json.dumps({"text": "x" * 5001, "language": "hi"}),
+        )
+        self.assertTrue(too_long["status"].startswith("400"))
+
+    def test_gemini_speech_endpoint_requires_a_gemini_api_key(self):
+        with patch.dict(os.environ, {}, clear=True):
+            response = request(
+                "/study/speak",
+                method="POST",
+                form=json.dumps({"text": "namaste", "language": "hi"}),
+            )
+        self.assertTrue(response["status"].startswith("503"))
+        self.assertIn("Gemini speech is not configured", response["body"])
+
+    def test_gemini_key_enables_transparently_disclosed_speech_fallback(self):
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}, clear=True):
+            page = request(
+                "/study",
+                cookie=f"{LANGUAGE_COOKIE_NAME}=hi",
+            )["body"]
+        self.assertIn('data-voice-gemini-enabled="true"', page)
+        self.assertIn("जवाब का पाठ ऑडियो बनाने के लिए Google Gemini को भेजा जाएगा", page)
+        self.assertNotIn("इस ऐप में AI मॉडल सेट नहीं है", page)
 
     def test_ai_provider_missing_configuration_uses_safe_local_fallback(self):
         with patch.dict(os.environ, {}, clear=True):
