@@ -52,62 +52,6 @@
       loadingMessage.textContent = messages[index];
     }, 1700);
   });
-  document.querySelectorAll(".research-download").forEach((downloadForm) => {
-    let downloadSubmitted = false;
-    const downloadButton = downloadForm.querySelector('button[type="submit"]');
-    const downloadStatus = downloadForm.querySelector(".research-download-status");
-    downloadForm.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      if (downloadSubmitted) return;
-      downloadSubmitted = true;
-      downloadButton.disabled = true;
-      downloadButton.textContent = "Preparing PDF...";
-      downloadStatus.hidden = false;
-      downloadStatus.textContent = "Preparing your decoded research PDF...";
-      try {
-        const response = await fetch(downloadForm.getAttribute("action"), {
-          method: "POST",
-          body: new URLSearchParams(new FormData(downloadForm)),
-          headers: { Accept: "application/pdf" }
-        });
-        if (!response.ok) {
-          downloadStatus.textContent = `PDF download failed (HTTP ${response.status}). Please try again.`;
-          return;
-        }
-        const contentType = response.headers.get("Content-Type") || "";
-        if (!contentType.toLowerCase().includes("application/pdf")) {
-          downloadStatus.textContent = "WellNote did not return a PDF. Please try again.";
-          return;
-        }
-        const blob = await response.blob();
-        if (!blob.size) {
-          downloadStatus.textContent = "The generated PDF was empty. Please try again.";
-          return;
-        }
-        const disposition = response.headers.get("Content-Disposition") || "";
-        const filenameMatch = disposition.match(/filename="([^"]+)"/i);
-        const filename = filenameMatch
-          ? filenameMatch[1]
-          : "Wellnote_Research_Decoder.pdf";
-        const downloadUrl = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = downloadUrl;
-        link.download = filename;
-        link.hidden = true;
-        document.body.append(link);
-        link.click();
-        link.remove();
-        window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
-        downloadStatus.textContent = "Your PDF download has started. Check your browser downloads.";
-      } catch (_error) {
-        downloadStatus.textContent = "Could not reach WellNote to create the PDF. Check your connection and try again.";
-      } finally {
-        downloadSubmitted = false;
-        downloadButton.disabled = false;
-        downloadButton.textContent = "Download Decoded PDF";
-      }
-    });
-  });
   document.querySelectorAll(".research-followup-form").forEach((followup) => {
     let followupSubmitted = false;
     followup.addEventListener("submit", (event) => {

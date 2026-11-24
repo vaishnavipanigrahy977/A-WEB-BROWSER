@@ -129,7 +129,7 @@ class MedicalAppTests(unittest.TestCase):
         script = request("/static/research-decoder.js")
         self.assertIn("words", script["body"])
         self.assertIn("followupSubmitted", script["body"])
-        self.assertIn('downloadForm.getAttribute("action")', script["body"])
+        self.assertNotIn("URL.createObjectURL", script["body"])
 
     def test_research_decoder_requires_explicit_ai_consent_and_preserves_abstract(self):
         abstract = "METHODS: Forty participants were enrolled."
@@ -164,7 +164,6 @@ class MedicalAppTests(unittest.TestCase):
             "Your decoded research is ready",
             "Ask Questions About This Research",
             "Download Decoded PDF",
-            "research-download-status",
             "Your question",
         ):
             self.assertIn(expected, result["body"])
