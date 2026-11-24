@@ -15,6 +15,7 @@ from medlineplus import search_medlineplus
 import study
 import templates
 import translations
+from youtube import search_youtube_video
 
 ROOT = Path(__file__).resolve().parent
 COOKIE_NAME = "wellnote_saved"
@@ -461,16 +462,23 @@ def application(environ, start_response):
     if path.startswith("/disease/"):
         selected = diseases.DISEASES_BY_SLUG.get(path.removeprefix("/disease/"))
         if selected:
+            video = None
+            video_error = None
+            if not selected.get("video_id"):
+                video, video_error = search_youtube_video(selected["name"])
             return respond(start_response, HTTPStatus.OK, templates.disease_page(
                 selected, selected["slug"] in saved,
                 language=language, current_url=current_url,
+                video=video, video_error=video_error,
             ))
         topic = path.removeprefix("/disease/").replace("-", " ").strip()[:120]
         if topic:
             results, error = search_medlineplus(topic)
+            video, video_error = search_youtube_video(topic)
             return respond(start_response, HTTPStatus.OK, templates.external_topic_page(
                 topic, results, error, language=language, current_url=current_url,
                 saved_topics=saved_topic_names(saved),
+                video=video, video_error=video_error,
             ))
     status, body = templates.error_page(
         "Page not found", "The page may have moved or the topic is not in this starter library.",

@@ -31,6 +31,9 @@ DISEASES = [
         ],
         "source_name": "National Heart, Lung, and Blood Institute",
         "source_url": "https://www.nhlbi.nih.gov/health/asthma",
+        "video_id": "PzfLDi-sL3w",
+        "video_title": "How does asthma work?",
+        "video_channel": "TED-Ed",
     },
     {
         "slug": "type-2-diabetes",
@@ -63,6 +66,9 @@ DISEASES = [
         ],
         "source_name": "Centers for Disease Control and Prevention",
         "source_url": "https://www.cdc.gov/diabetes/about/about-type-2-diabetes.html",
+        "video_id": "JAjZv41iUJU",
+        "video_title": "Understanding Type 2 Diabetes",
+        "video_channel": "Animated Diabetes Patient",
     },
     {
         "slug": "seasonal-influenza",
@@ -95,6 +101,9 @@ DISEASES = [
         ],
         "source_name": "Centers for Disease Control and Prevention",
         "source_url": "https://www.cdc.gov/flu/about/index.html",
+        "video_id": "oXzwtGFyBik",
+        "video_title": "Influenza Animation",
+        "video_channel": "XVIVO Scientific Animation",
     },
 ]
 

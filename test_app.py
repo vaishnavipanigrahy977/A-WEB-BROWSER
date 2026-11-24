@@ -132,6 +132,7 @@ class MedicalAppTests(unittest.TestCase):
             "Body Verse",
             "Explore the human body",
             'class="body-verse-side-panel"',
+            "Drag to rotate · Scroll to zoom",
             "What it does",
             'data-detail-fact',
             'href="/static/body-verse.css"',
@@ -164,11 +165,16 @@ class MedicalAppTests(unittest.TestCase):
             with self.subTest(system=system["model"]):
                 self.assertIn(system["model"], page["body"])
         self.assertNotIn("<svg", page["body"])
+        self.assertNotIn("body-zoom-tools", page["body"])
+        self.assertNotIn('data-camera=', page["body"])
+        self.assertNotIn("Reset view", page["body"])
 
         script = request("/static/body-verse.js")
         self.assertTrue(script["status"].startswith("200"))
         self.assertIn("pointerup", script["body"])
         self.assertIn("loader.load", script["body"])
+        self.assertIn('imageViewport.addEventListener("wheel"', script["body"])
+        self.assertNotIn("data-camera", script["body"])
         self.assertIn("data-structure-search", page["body"])
         self.assertIn("data-detail-function", page["body"])
         self.assertTrue(request("/static/body-verse.css")["status"].startswith("200"))
@@ -350,11 +356,31 @@ class MedicalAppTests(unittest.TestCase):
         self.assertIn("Information for “malaria”", result["body"])
         self.assertIn("Malaria is a disease caused by parasites.", result["body"])
         self.assertIn("https://medlineplus.gov/malaria.html", result["body"])
-        with patch("app.search_medlineplus", return_value=(medlineplus_result, None)):
+        video = {
+            "video_id": "Qwerty12345",
+            "title": "Malaria animation",
+            "channel": "Health Learning",
+        }
+        with patch("app.search_medlineplus", return_value=(medlineplus_result, None)), \
+                patch("app.search_youtube_video", return_value=(video, None)):
             detail = request("/disease/malaria")
         self.assertTrue(detail["status"].startswith("200"))
         self.assertIn("This condition is not in WellNote", detail["body"])
         self.assertNotIn("Common symptoms", detail["body"])
+        self.assertIn("youtube-nocookie.com/embed/Qwerty12345", detail["body"])
+        self.assertIn("Malaria animation", detail["body"])
+        self.assertIn("external-topic-layout", detail["body"])
+
+    def test_external_disease_detail_shows_youtube_fallback_when_lookup_fails(self):
+        with patch("app.search_medlineplus", return_value=([], None)), \
+                patch("app.search_youtube_video", return_value=(None, "YouTube could not be reached right now.")):
+            detail = request("/disease/rare-condition")
+        self.assertIn("Video preview unavailable", detail["body"])
+        self.assertIn("YouTube could not be reached just now.", detail["body"])
+        self.assertIn(
+            "youtube.com/results?search_query=rare+condition+animated+medical+explanation",
+            detail["body"],
+        )
 
     def test_external_disease_search_can_be_saved_and_removed_from_reading_list(self):
         malaria = {
@@ -455,8 +481,23 @@ class MedicalAppTests(unittest.TestCase):
         body = request("/disease/asthma")["body"]
         for expected in ("Common symptoms", "Prevention &amp; risk reduction",
                          "does not currently have a cure", "nhlbi.nih.gov",
-                         "not a substitute for a clinician"):
+                         "not a substitute for a clinician",
+                         "youtube-nocookie.com/embed/PzfLDi-sL3w",
+                         "How does asthma work?",
+                         "TED-Ed"):
             self.assertIn(expected, body)
+
+    def test_disease_video_previews_match_each_curated_topic(self):
+        cases = (
+            ("/disease/type-2-diabetes", "JAjZv41iUJU", "Common symptoms"),
+            ("/disease/seasonal-influenza", "oXzwtGFyBik", "Prevention &amp; risk reduction"),
+        )
+        for path, video_id, existing_detail in cases:
+            with self.subTest(path=path):
+                body = request(path)["body"]
+                self.assertIn(f"youtube-nocookie.com/embed/{video_id}", body)
+                self.assertIn(existing_detail, body)
+                self.assertIn("Supplementary educational content", body)
 
     def test_study_greeting_tutor_and_exam_information(self):
         self.assertIn("MCAT", request("/study")["body"])
@@ -1074,7 +1115,8 @@ class MedicalAppTests(unittest.TestCase):
         cookie = result["headers"]["Set-Cookie"].split(";", 1)[0]
         self.assertIn(COOKIE_NAME, cookie)
         self.assertIn("Asthma", request("/saved", cookie=cookie)["body"])
-        with patch("app.search_medlineplus", return_value=([], "Reference service unavailable")):
+        with patch("app.search_medlineplus", return_value=([], "Reference service unavailable")), \
+                patch("app.search_youtube_video", return_value=(None, "YouTube unavailable")):
             unknown = request("/disease/nope")
         self.assertTrue(unknown["status"].startswith("200"))
         self.assertIn("Reference service unavailable", unknown["body"])
