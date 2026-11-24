@@ -12,10 +12,8 @@ from wsgiref.simple_server import make_server
 
 import diseases
 from medlineplus import search_medlineplus
-import openstax
 import study
 import templates
-import textbooks
 import translations
 from youtube import search_youtube_video
 
@@ -24,8 +22,6 @@ COOKIE_NAME = "wellnote_saved"
 LANGUAGE_COOKIE_NAME = "wellnote_language"
 COOKIE_MAX_AGE = 60 * 60 * 24 * 30
 MAX_SAVED_COOKIE_LENGTH = 3800
-TEXTBOOK_COOKIE_NAME = "wellnote_textbooks"
-TEXTBOOK_COOKIE_MAX_LENGTH = 3800
 
 
 def external_saved_token(topic):
@@ -59,70 +55,6 @@ def saved_tokens(environ):
             if token not in tokens:
                 tokens.append(token)
     return tokens
-
-
-def textbook_state(environ):
-    jar = cookies.SimpleCookie()
-    try:
-        jar.load(environ.get("HTTP_COOKIE", ""))
-    except cookies.CookieError:
-        return {"bookmarks": set(), "completed": set()}
-    item = jar.get(TEXTBOOK_COOKIE_NAME)
-    if not item or len(item.value) > TEXTBOOK_COOKIE_MAX_LENGTH:
-        return {"bookmarks": set(), "completed": set()}
-    try:
-        encoded = item.value
-        data = json.loads(
-            base64.urlsafe_b64decode(
-                encoded + "=" * (-len(encoded) % 4)
-            ).decode("utf-8")
-        )
-    except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
-        return {"bookmarks": set(), "completed": set()}
-    if not isinstance(data, dict):
-        return {"bookmarks": set(), "completed": set()}
-
-    def valid_keys(field):
-        if not isinstance(data.get(field), list):
-            return set()
-        keys = set()
-        for value in data[field]:
-            if not isinstance(value, str) or ":" not in value:
-                continue
-            book_id, chapter_id = value.split(":", 1)
-            key = (book_id, chapter_id)
-            if key in textbooks.VALID_CHAPTER_KEYS:
-                keys.add(key)
-        return keys
-
-    return {
-        "bookmarks": valid_keys("bookmarks"),
-        "completed": valid_keys("completed"),
-    }
-
-
-def textbook_state_cookie(state):
-    data = {
-        name: sorted(f"{book_id}:{chapter_id}" for book_id, chapter_id in state[name])
-        for name in ("bookmarks", "completed")
-    }
-    return base64.urlsafe_b64encode(
-        json.dumps(data, separators=(",", ":")).encode("utf-8")
-    ).decode("ascii").rstrip("=")
-
-
-def textbook_redirect(start_response, location, state):
-    jar = cookies.SimpleCookie()
-    jar[TEXTBOOK_COOKIE_NAME] = textbook_state_cookie(state)
-    item = jar[TEXTBOOK_COOKIE_NAME]
-    item["path"] = "/"
-    item["max-age"] = COOKIE_MAX_AGE
-    item["httponly"] = True
-    item["samesite"] = "Lax"
-    return respond(
-        start_response, HTTPStatus.SEE_OTHER, b"",
-        [("Location", location), ("Set-Cookie", item.OutputString())],
-    )
 
 
 def saved_topic_names(tokens):
@@ -233,7 +165,6 @@ def application(environ, start_response):
         "/static/voice-tutor.js": ("voice-tutor.js", "text/javascript; charset=utf-8"),
         "/static/body-verse.css": ("body-verse.css", "text/css; charset=utf-8"),
         "/static/body-verse.js": ("body-verse.js", "text/javascript; charset=utf-8"),
-        "/static/textbooks.css": ("textbooks.css", "text/css; charset=utf-8"),
     }
     if method == "GET" and path in static_assets:
         filename, content_type = static_assets[path]
@@ -296,29 +227,6 @@ def application(environ, start_response):
                 content_type="audio/wav",
             )
         form = parse_qs(environ.get("wsgi.input").read(int(environ.get("CONTENT_LENGTH") or "0")).decode("utf-8", "replace"))
-        if path == "/study/textbooks/state":
-            action = form.get("action", [""])[0]
-            book_id = form.get("book", [""])[0]
-            chapter_id = form.get("chapter", [""])[0]
-            key = (book_id, chapter_id)
-            if key not in textbooks.VALID_CHAPTER_KEYS or action not in (
-                "bookmark", "complete"
-            ):
-                return respond(
-                    start_response, HTTPStatus.BAD_REQUEST,
-                    "A valid textbook chapter and action are required.",
-                )
-            state = textbook_state(environ)
-            collection = "bookmarks" if action == "bookmark" else "completed"
-            if key in state[collection]:
-                state[collection].remove(key)
-            else:
-                state[collection].add(key)
-            return textbook_redirect(
-                start_response,
-                f"/study/textbooks/{book_id}/{chapter_id}",
-                state,
-            )
         if path in ("/study/ask", "/study/ask-again"):
             prompt = form.get("prompt", [""])[0]
             return respond(start_response, HTTPStatus.OK, templates.study_page(
@@ -546,56 +454,6 @@ def application(environ, start_response):
             first, second, left, right, error,
             language=language, current_url=current_url,
         ))
-    if path == "/study/textbooks" or path.startswith("/study/textbooks/"):
-        state = textbook_state(environ)
-        parts = path.strip("/").split("/")
-        if len(parts) == 2:
-            query = parse_qs(query_string).get("q", [""])[0].strip()[:100]
-            subject = parse_qs(query_string).get("subject", [""])[0].strip()[:80]
-            level = parse_qs(query_string).get("level", [""])[0].strip()[:80]
-            return respond(start_response, HTTPStatus.OK, templates.textbook_library_page(
-                textbooks.BOOKS, state, query, subject, level,
-                language=language, current_url=current_url,
-            ))
-        if len(parts) == 3 and parts[2] == "search":
-            params = parse_qs(query_string)
-            query = params.get("q", [""])[0].strip()[:120]
-            field = params.get("field", [""])[0]
-            if field not in openstax.ALLOWED_FIELDS:
-                field = ""
-            results, error = openstax.search_openstax_books(query, field)
-            return respond(start_response, HTTPStatus.OK, templates.openstax_search_page(
-                query, field, results, error,
-                language=language, current_url=current_url,
-            ))
-        if len(parts) in (3, 4):
-            book = textbooks.BOOKS_BY_ID.get(parts[2])
-            if book is None:
-                status, body = templates.error_page(
-                    "Textbook not found", "Choose a title from the textbook library.",
-                    language=language, current_url=current_url,
-                )
-                return respond(start_response, status, body)
-            query = parse_qs(query_string).get("q", [""])[0].strip()[:100]
-            if len(parts) == 3:
-                return respond(start_response, HTTPStatus.OK, templates.textbook_book_page(
-                    book, state, query,
-                    language=language, current_url=current_url,
-                ))
-            chapter = textbooks.CHAPTERS_BY_ID.get((book["id"], parts[3]))
-            if chapter is None:
-                status, body = templates.error_page(
-                    "Chapter not found", "Choose a chapter from this textbook.",
-                    language=language, current_url=current_url,
-                )
-                return respond(start_response, status, body)
-            font_size = parse_qs(query_string).get("font", ["medium"])[0]
-            if font_size not in ("small", "medium", "large"):
-                font_size = "medium"
-            return respond(start_response, HTTPStatus.OK, templates.textbook_reader_page(
-                book, chapter, state, font_size, query,
-                language=language, current_url=current_url,
-            ))
     if path in ("/study", "/study/question"):
         question = None
         if path.endswith("/question"):

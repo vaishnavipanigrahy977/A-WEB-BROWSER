@@ -102,15 +102,6 @@ for clearer pronunciation. Tutor questions are entered as text.
   curated local replies when no AI provider is configured), and spoken answers
   through browser speech features,
   introductory original practice questions, and answer explanations.
-- A textbook portal inside the Study Room with curated OpenStax Anatomy and
-  Physiology 2e and Microbiology titles, subject/level filters, official chapter
-  links, in-book chapter search, adjustable reading size, browser-cookie
-  bookmarks and chapter completion progress, plus original WellNote summaries,
-  glossary terms, and self-check questions. It also searches the live OpenStax
-  catalog and displays only medical-foundation books in Physics, Chemistry,
-  Biology, and “Others” (Anatomy and Physiology), with links to each official
-  OpenStax subject page. Each curated title displays its authors, publisher,
-  source, and verified CC BY-NC-SA 4.0 license.
 - A study-buddy overview of all 13 essential vitamins, common deficiency
   findings, dietary sources, a link to NIH fact sheets, and clinical safety context.
 - A mind map generator that accepts any typed health topic. It uses WellNote's
@@ -140,14 +131,6 @@ The built-in disease library and local tutor provide curated educational
 examples—not an exhaustive database, a diagnostic system, or a full exam
 preparation course. Generative answers require the optional configured provider
 and are not guaranteed complete or correct.
-The textbook portal links to publishers' official pages and does not reproduce
-their chapters. Its short summaries, glossary entries, and self-check questions
-are original WellNote learning aids. OpenStax books have title-specific terms;
-the listed titles are licensed CC BY-NC-SA 4.0, so review the linked license
-before reusing or adapting any source material. Live OpenStax search reads its
-public book-catalog metadata and links to official book pages; it does not fetch
-or display full chapter text and excludes subjects outside Physics, Chemistry,
-Biology, and Anatomy and Physiology.
 Body Verse requires WebGL and an internet connection to load Three.js and the
 selected 3D anatomy model. Depending on the selected system, the source model
 download is approximately 2–65 MB. The models are from [Z-Anatomy](https://github.com/LluisV/Z-Anatomy)
