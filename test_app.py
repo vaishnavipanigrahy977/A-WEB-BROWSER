@@ -12,6 +12,7 @@ import app as wellnote_app
 import body_verse
 from app import COOKIE_NAME, LANGUAGE_COOKIE_NAME, TEXTBOOK_COOKIE_NAME, application
 from medlineplus import search_medlineplus
+import openstax
 from study import EXAM_GUIDES, QUESTIONS, ai_provider_configured, generate_ai_response, make_response, next_question_id
 import translations
 import textbooks
@@ -176,6 +177,65 @@ class MedicalAppTests(unittest.TestCase):
             form="action=bookmark&book=unknown&chapter=bad",
         )
         self.assertTrue(invalid["status"].startswith("400"))
+
+    def test_openstax_catalog_search_only_returns_live_allowed_subjects(self):
+        catalog = {
+            "books": [
+                {"title": "Anatomy and Physiology 2e", "slug": "books/anatomy-and-physiology-2e",
+                 "book_state": "live", "subject_categories": ["Anatomy and Physiology"]},
+                {"title": "Microbiology", "slug": "books/microbiology",
+                 "book_state": "live", "subject_categories": ["Biology"]},
+                {"title": "Chemistry 2e", "slug": "books/chemistry-2e",
+                 "book_state": "live", "subject_categories": ["Chemistry"]},
+                {"title": "College Physics 2e", "slug": "books/college-physics-2e",
+                 "book_state": "live", "subject_categories": ["Physics"]},
+                {"title": "Medical-Surgical Nursing", "slug": "books/medical-surgical-nursing",
+                 "book_state": "live", "subject_categories": ["Medical-Surgical Nursing"]},
+                {"title": "Biology Draft", "slug": "books/biology-draft",
+                 "book_state": "draft", "subject_categories": ["Biology"]},
+                {"title": "Unsafe link", "slug": "https://example.com/book",
+                 "book_state": "live", "subject_categories": ["Biology"]},
+            ]
+        }
+        payload = json.dumps(catalog).encode()
+        with patch("openstax.urlopen", return_value=BytesIO(payload)):
+            results, error = openstax.search_openstax_books("medical")
+        self.assertIsNone(error)
+        self.assertEqual(len(results), 4)
+        self.assertEqual({item["field"] for item in results}, {"Biology", "Chemistry", "Physics"})
+        self.assertNotIn("Medical-Surgical Nursing", {item["title"] for item in results})
+        self.assertTrue(all(item["url"].startswith("https://openstax.org/books/") for item in results))
+
+        with patch("openstax.urlopen", return_value=BytesIO(payload)):
+            chemistry, error = openstax.search_openstax_books("chemistry")
+        self.assertIsNone(error)
+        self.assertEqual([item["title"] for item in chemistry], ["Chemistry 2e"])
+
+        with patch("openstax.urlopen", return_value=BytesIO(payload)):
+            wrong_field, error = openstax.search_openstax_books("chemistry", "Physics")
+        self.assertIsNone(error)
+        self.assertEqual(wrong_field, [])
+
+    def test_openstax_search_page_shows_not_found_and_catalog_errors(self):
+        catalog = {"books": [
+            {"title": "Biology 2e", "slug": "books/biology-2e",
+             "book_state": "live", "subject_categories": ["Biology"]}
+        ]}
+        with patch("openstax.urlopen", return_value=BytesIO(json.dumps(catalog).encode())):
+            found = request("/study/textbooks/search", query="q=biology")
+        self.assertIn("LIVE OPENSTAX CATALOG", found["body"])
+        self.assertIn("Biology 2e", found["body"])
+        self.assertIn('href="https://openstax.org/books/biology-2e"', found["body"])
+
+        with patch("openstax.urlopen", return_value=BytesIO(json.dumps(catalog).encode())):
+            absent = request("/study/textbooks/search", query="q=rare+anatomy+book")
+        self.assertIn("No such content available.", absent["body"])
+        self.assertIn("medical-related Physics, Chemistry, and Biology", absent["body"])
+
+        with patch("openstax.urlopen", side_effect=TimeoutError):
+            unavailable = request("/study/textbooks/search", query="q=biology")
+        self.assertIn("OpenStax search is unavailable.", unavailable["body"])
+        self.assertNotIn("No such content available.", unavailable["body"])
 
     def test_hindi_language_switcher_localizes_guides_and_remembers_choice(self):
         english = request("/disease/asthma")

@@ -106,8 +106,10 @@ for clearer pronunciation. Tutor questions are entered as text.
   Physiology 2e and Microbiology titles, subject/level filters, official chapter
   links, in-book chapter search, adjustable reading size, browser-cookie
   bookmarks and chapter completion progress, plus original WellNote summaries,
-  glossary terms, and self-check questions. Each title displays its authors,
-  publisher, source, and verified CC BY-NC-SA 4.0 license.
+  glossary terms, and self-check questions. It also searches the live OpenStax
+  catalog and displays only medical-foundation books in Biology, Chemistry, and
+  Physics. Each curated title displays its authors, publisher, source, and
+  verified CC BY-NC-SA 4.0 license.
 - A study-buddy overview of all 13 essential vitamins, common deficiency
   findings, dietary sources, a link to NIH fact sheets, and clinical safety context.
 - A mind map generator that accepts any typed health topic. It uses WellNote's
@@ -141,7 +143,10 @@ The textbook portal links to publishers' official pages and does not reproduce
 their chapters. Its short summaries, glossary entries, and self-check questions
 are original WellNote learning aids. OpenStax books have title-specific terms;
 the listed titles are licensed CC BY-NC-SA 4.0, so review the linked license
-before reusing or adapting any source material.
+before reusing or adapting any source material. Live OpenStax search reads its
+public book-catalog metadata and links to official book pages; it does not fetch
+or display full chapter text and excludes subjects outside Biology, Chemistry,
+and Physics.
 Body Verse requires WebGL and an internet connection to load Three.js and the
 selected 3D anatomy model. Depending on the selected system, the source model
 download is approximately 2–65 MB. The models are from [Z-Anatomy](https://github.com/LluisV/Z-Anatomy)

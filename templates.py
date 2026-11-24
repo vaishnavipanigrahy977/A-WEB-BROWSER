@@ -624,17 +624,72 @@ def textbook_library_page(books, state, query="", subject="", level="", language
         '<section class="simple-hero textbook-hero"><a class="back-link" href="/study">← Study room</a>'
         '<span class="eyebrow">OPEN HEALTH TEXTBOOKS</span><h1>A library for learning<span class="brand-period">.</span></h1>'
         '<p>Browse selected open textbooks by subject and level. The complete books stay with their publishers; WellNote links to official chapters and adds original study aids.</p></section>'
+        '<form class="openstax-search-form" action="/study/textbooks/search" method="get">'
+        '<label for="openstax-query">Search all OpenStax book titles</label>'
+        '<div><input id="openstax-query" type="search" name="q" placeholder="Try biology, chemistry, physics, or MCAT" required>'
+        '<select name="field" aria-label="Limit results by field"><option value="">All allowed fields</option>'
+        '<option value="Biology">Biology</option><option value="Chemistry">Chemistry</option><option value="Physics">Physics</option></select>'
+        '<button class="button button-dark" type="submit">Search OpenStax</button></div>'
+        '<small>Searches the live catalog; only Physics, Chemistry, and Biology titles relevant to medical foundations are shown.</small></form>'
         '<form class="textbook-filters" action="/study/textbooks" method="get">'
-        f'<label>Search titles<input type="search" name="q" value="{e(query)}" placeholder="Try anatomy or infection"></label>'
+        f'<label>Filter curated titles<input type="search" name="q" value="{e(query)}" placeholder="Try anatomy or infection"></label>'
         f'<label>Subject<select name="subject">{subject_options}</select></label>'
         f'<label>Level<select name="level">{level_options}</select></label>'
-        '<button class="button button-dark" type="submit">Find books</button></form>'
+        '<button class="button button-outline" type="submit">Filter library</button></form>'
         f'<section class="textbook-grid" aria-label="Textbook titles">{"".join(cards)}</section>'
         f'{bookmark_section}'
         f'{notice("Educational use only.", "Textbook links and original WellNote learning aids support study; they are not medical advice. Confirm clinical questions with qualified professionals.")}'
     )
     return layout(
         "Textbook library", content, "study", language, current_url,
+        '<link rel="stylesheet" href="/static/textbooks.css">',
+    )
+
+
+def openstax_search_page(query, field, results, error=None, language="en", current_url="/"):
+    field_options = '<option value="">All allowed fields</option>' + "".join(
+        f'<option value="{name}"{" selected" if field == name else ""}>{name}</option>'
+        for name in ("Biology", "Chemistry", "Physics")
+    )
+    cards = "".join(
+        f'<article class="openstax-result"><span class="eyebrow">{e(book["field"])} · MEDICAL FOUNDATION</span>'
+        f'<h2><a href="{e(book["url"])}" target="_blank" rel="noopener noreferrer">{e(book["title"])}</a></h2>'
+        f'<p>Official OpenStax listing · {e(book["field"])}</p>'
+        f'<a class="text-link" href="{e(book["url"])}" target="_blank" rel="noopener noreferrer">Open book at OpenStax ↗</a></article>'
+        for book in results
+    )
+    if error:
+        result_content = (
+            f'<div class="openstax-empty"><strong>OpenStax search is unavailable.</strong><p>{e(error)}</p>'
+            '<a href="/study/textbooks">Return to the curated library</a></div>'
+        )
+    elif query and not results:
+        result_content = (
+            '<div class="openstax-empty"><strong>No such content available.</strong>'
+            '<p>No live OpenStax title matched that search within the medical-related Physics, Chemistry, and Biology fields.</p>'
+            '<a href="/study/textbooks">Browse the curated library</a></div>'
+        )
+    elif not query:
+        result_content = (
+            '<div class="openstax-empty"><strong>Search the OpenStax catalog.</strong>'
+            '<p>Enter a title, subject, or medical entrance exam term to find matching books.</p></div>'
+        )
+    else:
+        result_content = f'<section class="openstax-results" aria-label="OpenStax results">{cards}</section>'
+    content = (
+        '<section class="simple-hero textbook-hero"><a class="back-link" href="/study/textbooks">← Textbook library</a>'
+        '<span class="eyebrow">LIVE OPENSTAX CATALOG</span><h1>Search medical foundations<span class="brand-period">.</span></h1>'
+        '<p>Search book titles across the OpenStax catalog. WellNote displays only books classified under Biology, Chemistry, or Physics for medical and entrance-exam foundations.</p></section>'
+        '<form class="openstax-search-form" action="/study/textbooks/search" method="get">'
+        f'<label for="openstax-query">Search all OpenStax book titles</label><div><input id="openstax-query" type="search" name="q" value="{e(query)}" placeholder="Try biology, chemistry, physics, or MCAT" required>'
+        f'<select name="field" aria-label="Limit results by field">{field_options}</select>'
+        '<button class="button button-dark" type="submit">Search OpenStax</button></div>'
+        '<small>Only live catalog entries in the three allowed subject fields are included. Full text remains on OpenStax.</small></form>'
+        f'{result_content}'
+        f'{notice("Catalog search, not a medical reference.", "Search results link to official OpenStax book pages. They are educational resources, not medical advice or a substitute for clinical training.")}'
+    )
+    return layout(
+        "Search OpenStax", content, "study", language, current_url,
         '<link rel="stylesheet" href="/static/textbooks.css">',
     )
 

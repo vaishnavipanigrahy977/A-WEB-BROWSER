@@ -12,6 +12,7 @@ from wsgiref.simple_server import make_server
 
 import diseases
 from medlineplus import search_medlineplus
+import openstax
 import study
 import templates
 import textbooks
@@ -554,6 +555,17 @@ def application(environ, start_response):
             level = parse_qs(query_string).get("level", [""])[0].strip()[:80]
             return respond(start_response, HTTPStatus.OK, templates.textbook_library_page(
                 textbooks.BOOKS, state, query, subject, level,
+                language=language, current_url=current_url,
+            ))
+        if len(parts) == 3 and parts[2] == "search":
+            params = parse_qs(query_string)
+            query = params.get("q", [""])[0].strip()[:120]
+            field = params.get("field", [""])[0]
+            if field not in openstax.ALLOWED_FIELDS:
+                field = ""
+            results, error = openstax.search_openstax_books(query, field)
+            return respond(start_response, HTTPStatus.OK, templates.openstax_search_page(
+                query, field, results, error,
                 language=language, current_url=current_url,
             ))
         if len(parts) in (3, 4):
