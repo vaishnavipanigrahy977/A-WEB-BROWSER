@@ -220,6 +220,13 @@ class MedicalAppTests(unittest.TestCase):
         self.assertIn("Wellnote_Research_Decoder_", downloaded["headers"]["Content-Disposition"])
         self.assertTrue(downloaded["body_bytes"].startswith(b"%PDF-1.4"))
         self.assertTrue(downloaded["body_bytes"].endswith(b"%%EOF\n"))
+        downloaded_operation = request(
+            "/study/research-decoder",
+            method="POST",
+            form="operation=download&document=" + token.group(1),
+        )
+        self.assertTrue(downloaded_operation["status"].startswith("200"))
+        self.assertEqual(downloaded_operation["headers"]["Content-Type"], "application/pdf")
         invalid = request(
             "/study/research-decoder",
             method="POST",

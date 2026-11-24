@@ -338,7 +338,7 @@ def application(environ, start_response):
                 environ.get("wsgi.input").read(content_length).decode("utf-8", "replace"),
                 keep_blank_values=True,
             )
-            action = form.get("action", ["decode"])[0]
+            action = form.get("action", form.get("operation", ["decode"]))[0]
             use_ai = form.get("use_ai", [""])[0] == "yes"
             if action == "download":
                 document, error = research_decoder.parse_document_token(

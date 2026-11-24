@@ -541,7 +541,7 @@ def research_decoder_page(
                 token = research_decoder.make_document_token(paper, sections)
                 download = (
                     '<form action="/study/research-decoder" method="post" class="research-download">'
-                    '<input type="hidden" name="action" value="download">'
+                    '<input type="hidden" name="operation" value="download">'
                     f'<input type="hidden" name="document" value="{e(token)}">'
                     '<button class="button button-dark" type="submit">Download Decoded PDF</button>'
                     '<p class="research-download-status" role="status" aria-live="polite" hidden></p>'
