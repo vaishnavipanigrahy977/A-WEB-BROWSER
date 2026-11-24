@@ -10,10 +10,12 @@ from urllib.parse import quote_plus
 
 import app as wellnote_app
 import body_verse
-from app import COOKIE_NAME, LANGUAGE_COOKIE_NAME, application
+from app import COOKIE_NAME, LANGUAGE_COOKIE_NAME, TEXTBOOK_COOKIE_NAME, application
 from medlineplus import search_medlineplus
+import openstax
 from study import EXAM_GUIDES, QUESTIONS, ai_provider_configured, generate_ai_response, make_response, next_question_id
 import translations
+import textbooks
 
 
 def request(path="/", method="GET", query="", cookie="", form="", host="localhost:8000", forwarded_proto=""):
@@ -30,8 +32,42 @@ def request(path="/", method="GET", query="", cookie="", form="", host="localhos
         "CONTENT_LENGTH": str(len(form.encode())),
         "wsgi.input": BytesIO(form.encode()),
     }, start_response)
-    result["body"] = b"".join(body).decode()
+    result["body_bytes"] = b"".join(body)
+    result["body"] = result["body_bytes"].decode("utf-8", "replace")
     return result
+
+
+def research_ai_sections():
+    return {
+        "Research title": "AI-generated descriptive title: Sample study",
+        "Background": "A study evaluates an educational medical question.",
+        "Objective": "To compare the reported outcomes.",
+        "Study design and methodology": "The researchers studied 40 participants.",
+        "Important results and statistics": [
+            {
+                "finding": "Primary outcome",
+                "reported_value": "12%; p=0.04 (95% CI 1.1–2.4)",
+                "interpretation": "The observed result was statistically significant, not necessarily clinically important.",
+            }
+        ],
+        "Conclusion": {
+            "authors_conclusion": "The authors reported a difference.",
+            "simplified_interpretation": "The study found a difference in the measured outcome.",
+        },
+        "Difficult terminology explained": [
+            {
+                "medical_term": "Confidence interval",
+                "simple_meaning": "A range that describes uncertainty around an estimate.",
+                "relevance_to_this_study": "It describes the precision of the reported estimate.",
+            }
+        ],
+        "Clinical significance": "The finding may guide further research, not individual care.",
+        "Limitations of the study": {
+            "stated_by_authors": "The authors reported limited follow-up.",
+            "potentially_inferred": "Selection methods are not described.",
+            "not_reported_in_abstract": "The setting was not reported in the abstract.",
+        },
+    }
 
 
 class MedicalAppTests(unittest.TestCase):
@@ -55,6 +91,407 @@ class MedicalAppTests(unittest.TestCase):
         self.assertIn("Asthma", result["body"])
         self.assertNotIn("Type 2 diabetes</h3>", result["body"])
         self.assertIn("&lt;script&gt;", request(query="q=%3Cscript%3E")["body"])
+
+    def test_study_room_links_curated_textbook_library(self):
+        body = request("/study")["body"]
+        self.assertIn('href="/study/textbooks">Open textbook library', body)
+        self.assertIn('href="/study/research-decoder">Research decoder', body)
+
+        library = request("/study/textbooks")
+        self.assertTrue(library["status"].startswith("200"))
+        for expected in (
+            "A library for learning",
+            "Anatomy and Physiology 2e",
+            "Microbiology",
+            "Introductory college",
+            "CC BY-NC-SA 4.0",
+            "Official source",
+            "Educational use only.",
+        ):
+            self.assertIn(expected, library["body"])
+
+    def test_research_decoder_is_paste_only_and_exposes_interactive_controls(self):
+        body = request("/study/research-decoder")["body"]
+        for expected in (
+            "Understand research papers. Decode medical science. Learn smarter.",
+            'name="abstract"',
+            "Paste your research abstract",
+            "research-counter",
+            "Clear text",
+            "Decode Abstract",
+            "research-decoder.js",
+            "checkbox",
+            "I agree to send this abstract",
+        ):
+            self.assertIn(expected, body)
+        for obsolete in ('name="query"', "Europe PMC", "DOI", "PMID", "type=\"file\""):
+            self.assertNotIn(obsolete, body)
+        script = request("/static/research-decoder.js")
+        self.assertIn("words", script["body"])
+        self.assertIn("followupSubmitted", script["body"])
+        self.assertNotIn("URL.createObjectURL", script["body"])
+
+    def test_research_decoder_requires_explicit_ai_consent_and_preserves_abstract(self):
+        abstract = "METHODS: Forty participants were enrolled."
+        with patch("app.study.generate_ai_response") as model:
+            result = request(
+                "/study/research-decoder",
+                method="POST",
+                form="action=decode&abstract=" + quote_plus(abstract),
+            )
+        model.assert_not_called()
+        self.assertIn("Select AI-assisted decoding", result["body"])
+        self.assertIn(abstract, result["body"])
+        self.assertNotIn("Download Decoded PDF", result["body"])
+
+    def test_research_decoder_displays_all_ai_sections_and_statistics(self):
+        abstract = "OBJECTIVE: Compare outcomes. RESULTS: 12%; p=0.04."
+        ai_sections = research_ai_sections()
+        ai_sections["Background"] = "Safe text <unsafe> & details."
+        with patch(
+            "app.study.generate_ai_response",
+            return_value=json.dumps({"sections": ai_sections}),
+        ) as model:
+            result = request(
+                "/study/research-decoder",
+                method="POST",
+                form="action=decode&abstract=" + quote_plus(abstract) + "&use_ai=yes",
+            )
+
+        model.assert_called_once()
+        self.assertIn(abstract, model.call_args.args[0])
+        for expected in (
+            "Your decoded research is ready",
+            "Ask Questions About This Research",
+            "Download Decoded PDF",
+            "Your question",
+        ):
+            self.assertIn(expected, result["body"])
+        self.assertNotIn('class="research-document-section"', result["body"])
+        self.assertNotIn("Safe text", result["body"])
+        self.assertNotIn("Safe text <unsafe>", result["body"])
+
+    def test_research_decoder_keeps_download_available_when_ai_omits_a_number(self):
+        abstract = "RESULTS: 45 participants; response was 8.7% (95% CI 4.1–9.9)."
+        with patch(
+            "app.study.generate_ai_response",
+            return_value=json.dumps({"sections": research_ai_sections()}),
+        ):
+            result = request(
+                "/study/research-decoder",
+                method="POST",
+                form="action=decode&abstract=" + quote_plus(abstract) + "&use_ai=yes",
+            )
+
+        self.assertIn("Your decoded research is ready", result["body"])
+        self.assertIn("Download Decoded PDF", result["body"])
+        self.assertNotIn("did not preserve every numerical value", result["body"])
+
+    def test_research_decoder_reports_missing_provider_and_keeps_original_text(self):
+        abstract = "An abstract that should stay visible after provider failure."
+        with patch("app.study.generate_ai_response", return_value=None):
+            result = request(
+                "/study/research-decoder",
+                method="POST",
+                form="action=decode&abstract=" + quote_plus(abstract) + "&use_ai=yes",
+            )
+        self.assertIn("This WellNote server cannot see an AI API key", result["body"])
+        self.assertIn("local 127.0.0.1 preview", result["body"])
+        self.assertIn(abstract, result["body"])
+        self.assertNotIn("Download Decoded PDF", result["body"])
+
+    def test_research_decoder_rejects_invalid_ai_schema_without_fake_output(self):
+        abstract = "METHODS: Participants were studied."
+        with patch("app.study.generate_ai_response", return_value="unstructured model output"):
+            result = request(
+                "/study/research-decoder",
+                method="POST",
+                form="action=decode&abstract=" + quote_plus(abstract) + "&use_ai=yes",
+            )
+        self.assertIn("did not return a valid research document", result["body"])
+        self.assertIn(abstract, result["body"])
+        self.assertNotIn("Download Decoded PDF", result["body"])
+
+    def test_research_decoder_downloads_pdf_from_actual_decoded_document(self):
+        abstract = "OBJECTIVE: Compare outcomes. RESULTS: The outcome was 12%."
+        with patch(
+            "app.study.generate_ai_response",
+            return_value=json.dumps({"sections": research_ai_sections()}),
+        ):
+            decoded = request(
+                "/study/research-decoder",
+                method="POST",
+                form="action=decode&abstract=" + quote_plus(abstract) + "&use_ai=yes",
+            )
+        token = re.search(r'name="document" value="([A-Za-z0-9_-]+)"', decoded["body"])
+        self.assertIsNotNone(token)
+        downloaded = request(
+            "/study/research-decoder",
+            method="POST",
+            form="action=download&document=" + token.group(1),
+        )
+        self.assertTrue(downloaded["status"].startswith("200"))
+        self.assertEqual(downloaded["headers"]["Content-Type"], "application/pdf")
+        self.assertTrue(
+            downloaded["headers"]["Content-Disposition"].startswith("attachment; filename=")
+        )
+        self.assertIn(
+            "Wellnote_Research_Decoder_",
+            downloaded["headers"]["Content-Disposition"],
+        )
+        self.assertEqual(
+            int(downloaded["headers"]["Content-Length"]),
+            len(downloaded["body_bytes"]),
+        )
+        self.assertTrue(downloaded["body_bytes"].startswith(b"%PDF-1.4"))
+        self.assertTrue(downloaded["body_bytes"].endswith(b"%%EOF\n"))
+        downloaded_operation = request(
+            "/study/research-decoder",
+            method="POST",
+            form="operation=download&document=" + token.group(1),
+        )
+        self.assertTrue(downloaded_operation["status"].startswith("200"))
+        self.assertEqual(downloaded_operation["headers"]["Content-Type"], "application/pdf")
+        invalid = request(
+            "/study/research-decoder",
+            method="POST",
+            form="action=download&document=not-a-valid-token",
+        )
+        self.assertTrue(invalid["status"].startswith("400"))
+
+    def test_research_decoder_followup_is_abstract_grounded_and_requires_consent(self):
+        abstract = "METHODS: Forty adults participated. RESULTS: p=0.04."
+        with patch(
+            "app.study.generate_ai_response",
+            return_value=json.dumps({"sections": research_ai_sections()}),
+        ):
+            decoded = request(
+                "/study/research-decoder",
+                method="POST",
+                form="action=decode&abstract=" + quote_plus(abstract) + "&use_ai=yes",
+            )
+        token = re.search(r'name="document" value="([A-Za-z0-9_-]+)"', decoded["body"]).group(1)
+        with patch("app.study.generate_ai_response") as model:
+            no_consent = request(
+                "/study/research-decoder",
+                method="POST",
+                form="action=followup&document=" + token + "&question=What+does+p+mean%3F",
+            )
+        model.assert_not_called()
+        self.assertIn("Confirm consent", no_consent["body"])
+
+        with patch("app.study.generate_ai_response", return_value="It is a statistical result.") as model:
+            answer = request(
+                "/study/research-decoder",
+                method="POST",
+                form=(
+                    "action=followup&document=" + token
+                    + "&question=What+does+p%3D0.04+mean%3F"
+                    + "&followup_ai_consent=yes"
+                ),
+            )
+        self.assertIn(abstract, model.call_args.args[0])
+        self.assertIn("Objective", model.call_args.args[0])
+        self.assertIn("What does p=0.04 mean?", model.call_args.args[0])
+        self.assertIn("It is a statistical result.", answer["body"])
+        self.assertIn(abstract, answer["body"])
+
+    def test_research_decoder_validates_empty_and_oversized_abstracts(self):
+        empty = request(
+            "/study/research-decoder",
+            method="POST",
+            form="action=decode&abstract=",
+        )
+        self.assertIn("Paste a research abstract", empty["body"])
+        oversized = request(
+            "/study/research-decoder",
+            method="POST",
+            form="action=decode&abstract=" + ("a" * 12_001),
+        )
+        self.assertTrue(oversized["status"].startswith("413"))
+
+    def test_textbook_detail_has_source_attribution_and_searchable_chapters(self):
+        detail = request("/study/textbooks/anatomy-and-physiology-2e")
+        for expected in (
+            "J. Gordon Betts",
+            "OpenStax, Rice University",
+            "CC BY-NC-SA 4.0",
+            "https://openstax.org/books/anatomy-and-physiology-2e",
+            "Chapter 1: An Introduction to the Human Body",
+            "Chapter 3: The Cellular Level of Organization",
+            "A link-out reader, not a copy.",
+        ):
+            self.assertIn(expected, detail["body"])
+        self.assertIn("https://openstax.org/books/anatomy-and-physiology-2e/pages/3-the-cellular-level-of-organization", detail["body"])
+
+        searched = request(
+            "/study/textbooks/anatomy-and-physiology-2e",
+            query="q=lymphocyte",
+        )["body"]
+        self.assertIn("The Lymphatic System and Immunity", searched)
+        self.assertNotIn("An Introduction to the Human Body", searched)
+
+        filtered = request("/study/textbooks", query="subject=Microbiology+%26+infection")
+        self.assertIn("Microbiology</a>", filtered["body"])
+        self.assertNotIn("Anatomy and Physiology 2e</a>", filtered["body"])
+        self.assertIn("&lt;script&gt;", request("/study/textbooks", query="q=%3Cscript%3E")["body"])
+
+    def test_textbook_reader_controls_search_and_original_study_aids(self):
+        reader = request(
+            "/study/textbooks/microbiology/antimicrobial-drugs",
+            query="font=large",
+        )
+        for expected in (
+            'class="textbook-reading-pane large"',
+            "font-controls",
+            "GLOSSARY",
+            "Selective toxicity",
+            "REVIEW QUESTIONS",
+            "Reveal a sample answer",
+            "original WellNote learning aids",
+            "Read full chapter at OpenStax",
+            "https://openstax.org/books/microbiology/pages/14-antimicrobial-drugs",
+            "CC BY-NC-SA 4.0",
+        ):
+            self.assertIn(expected, reader["body"])
+        search_results = request(
+            "/study/textbooks/microbiology/antimicrobial-drugs",
+            query="q=incidence",
+        )["body"]
+        self.assertIn("Search results for “incidence”", search_results)
+        self.assertIn("Chapter 16: Disease and Epidemiology", search_results)
+
+        invalid_font = request(
+            "/study/textbooks/microbiology/antimicrobial-drugs",
+            query="font=huge",
+        )["body"]
+        self.assertIn('class="textbook-reading-pane medium"', invalid_font)
+        self.assertTrue(request("/study/textbooks/no-such-book")["status"].startswith("404"))
+        self.assertTrue(request("/study/textbooks/microbiology/no-such-chapter")["status"].startswith("404"))
+        self.assertIn(".textbook-reader-layout", request("/static/textbooks.css")["body"])
+
+    def test_textbook_bookmarks_and_completion_progress_persist_in_cookie(self):
+        first = request(
+            "/study/textbooks/state",
+            method="POST",
+            form="action=bookmark&book=anatomy-and-physiology-2e&chapter=cellular-level",
+        )
+        self.assertTrue(first["status"].startswith("303"))
+        self.assertEqual(
+            first["headers"]["Location"],
+            "/study/textbooks/anatomy-and-physiology-2e/cellular-level",
+        )
+        cookie = first["headers"]["Set-Cookie"].split(";", 1)[0]
+        self.assertIn(TEXTBOOK_COOKIE_NAME, cookie)
+        reader = request(
+            "/study/textbooks/anatomy-and-physiology-2e/cellular-level",
+            cookie=cookie,
+        )["body"]
+        self.assertIn("Remove bookmark", reader)
+
+        completed = request(
+            "/study/textbooks/state",
+            method="POST",
+            cookie=cookie,
+            form="action=complete&book=anatomy-and-physiology-2e&chapter=cellular-level",
+        )
+        updated_cookie = completed["headers"]["Set-Cookie"].split(";", 1)[0]
+        reader = request(
+            "/study/textbooks/anatomy-and-physiology-2e/cellular-level",
+            cookie=updated_cookie,
+        )["body"]
+        self.assertIn("Mark as unread", reader)
+        self.assertIn("1/4 selected chapters · 25%", reader)
+        library = request("/study/textbooks", cookie=updated_cookie)["body"]
+        self.assertIn("YOUR BOOKMARKS", library)
+        self.assertIn("Chapter 3: The Cellular Level of Organization", library)
+
+        invalid = request(
+            "/study/textbooks/state",
+            method="POST",
+            form="action=bookmark&book=unknown&chapter=bad",
+        )
+        self.assertTrue(invalid["status"].startswith("400"))
+
+    def test_openstax_catalog_search_only_returns_live_allowed_subjects(self):
+        catalog = {
+            "books": [
+                {"title": "Anatomy and Physiology 2e", "slug": "books/anatomy-and-physiology-2e",
+                 "book_state": "live", "subject_categories": ["Anatomy and Physiology"]},
+                {"title": "Microbiology", "slug": "books/microbiology",
+                 "book_state": "live", "subject_categories": ["Biology"]},
+                {"title": "Chemistry 2e", "slug": "books/chemistry-2e",
+                 "book_state": "live", "subject_categories": ["Chemistry"]},
+                {"title": "College Physics 2e", "slug": "books/college-physics-2e",
+                 "book_state": "live", "subject_categories": ["Physics"]},
+                {"title": "Medical-Surgical Nursing", "slug": "books/medical-surgical-nursing",
+                 "book_state": "live", "subject_categories": ["Medical-Surgical Nursing"]},
+                {"title": "Biology Draft", "slug": "books/biology-draft",
+                 "book_state": "draft", "subject_categories": ["Biology"]},
+                {"title": "Unsafe link", "slug": "https://example.com/book",
+                 "book_state": "live", "subject_categories": ["Biology"]},
+            ]
+        }
+        payload = json.dumps(catalog).encode()
+        with patch("openstax.urlopen", return_value=BytesIO(payload)):
+            results, error = openstax.search_openstax_books("medical")
+        self.assertIsNone(error)
+        self.assertEqual(len(results), 4)
+        self.assertEqual(
+            {item["field"] for item in results},
+            {"Biology", "Chemistry", "Physics", "Others"},
+        )
+        self.assertNotIn("Medical-Surgical Nursing", {item["title"] for item in results})
+        self.assertTrue(all(item["url"].startswith("https://openstax.org/books/") for item in results))
+        anatomy = next(item for item in results if item["title"] == "Anatomy and Physiology 2e")
+        self.assertEqual(anatomy["field"], "Others")
+        self.assertEqual(
+            anatomy["subject_url"],
+            "https://openstax.org/subjects/science#Anatomy%20and%20Physiology",
+        )
+
+        with patch("openstax.urlopen", return_value=BytesIO(payload)):
+            chemistry, error = openstax.search_openstax_books("chemistry")
+        self.assertIsNone(error)
+        self.assertEqual([item["title"] for item in chemistry], ["Chemistry 2e"])
+
+        with patch("openstax.urlopen", return_value=BytesIO(payload)):
+            wrong_field, error = openstax.search_openstax_books("chemistry", "Physics")
+        self.assertIsNone(error)
+        self.assertEqual(wrong_field, [])
+
+        with patch("openstax.urlopen", return_value=BytesIO(payload)):
+            anatomy_only, error = openstax.search_openstax_books("medical", "Others")
+        self.assertIsNone(error)
+        self.assertEqual([item["title"] for item in anatomy_only], ["Anatomy and Physiology 2e"])
+
+    def test_openstax_search_page_shows_not_found_and_catalog_errors(self):
+        catalog = {"books": [
+            {"title": "Biology 2e", "slug": "books/biology-2e",
+             "book_state": "live", "subject_categories": ["Biology"]}
+        ]}
+        with patch("openstax.urlopen", return_value=BytesIO(json.dumps(catalog).encode())):
+            found = request("/study/textbooks/search", query="q=biology")
+        self.assertIn("LIVE OPENSTAX CATALOG", found["body"])
+        self.assertIn("Biology 2e", found["body"])
+        self.assertIn('href="https://openstax.org/books/biology-2e"', found["body"])
+        self.assertIn('href="https://openstax.org/subjects/science#Biology"', found["body"])
+        self.assertIn('value="Others">Others · Anatomy and Physiology', found["body"])
+
+        with patch("openstax.urlopen", return_value=BytesIO(json.dumps(catalog).encode())):
+            absent = request("/study/textbooks/search", query="q=rare+anatomy+book")
+        self.assertIn("No such content available.", absent["body"])
+        self.assertIn(
+            "medical-related Physics, Chemistry, Biology, or Anatomy and Physiology",
+            absent["body"],
+        )
+        for source_url in openstax.FIELD_URLS.values():
+            self.assertIn(f'href="{source_url}"', found["body"])
+
+        with patch("openstax.urlopen", side_effect=TimeoutError):
+            unavailable = request("/study/textbooks/search", query="q=biology")
+        self.assertIn("OpenStax search is unavailable.", unavailable["body"])
+        self.assertNotIn("No such content available.", unavailable["body"])
 
     def test_hindi_language_switcher_localizes_guides_and_remembers_choice(self):
         english = request("/disease/asthma")
@@ -971,7 +1408,7 @@ class MedicalAppTests(unittest.TestCase):
             captured["url"],
             "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
         )
-        self.assertEqual(captured["payload"]["model"], "gemini-2.5-flash")
+        self.assertEqual(captured["payload"]["model"], "gemini-3.5-flash-lite")
         self.assertEqual(
             captured["headers"]["Authorization"],
             "Bearer test-gemini-key",
@@ -1101,10 +1538,64 @@ class MedicalAppTests(unittest.TestCase):
             {}, BytesIO(b"provider internals"),
         )
         with patch.dict(os.environ, config, clear=True):
-            with patch("study.urlopen", side_effect=server_error):
-                answer = generate_ai_response("A general prompt")
+            with patch("study.urlopen", side_effect=server_error) as provider:
+                with patch("study.time.sleep"):
+                    answer = generate_ai_response("A general prompt")
+        self.assertEqual(provider.call_count, 3)
         self.assertIn("HTTP 503", answer)
+        self.assertIn("retried automatically", answer)
         self.assertNotIn("provider internals", answer)
+
+        missing_model = HTTPError(
+            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+            404, "Not Found", {}, BytesIO(b"model details"),
+        )
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}, clear=True):
+            with patch("study.urlopen", side_effect=missing_model):
+                answer = generate_ai_response("A research prompt")
+        self.assertIn("GEMINI_MODEL", answer)
+        self.assertIn("gemini-3.5-flash-lite", answer)
+        self.assertNotIn("model details", answer)
+
+    def test_ai_provider_retries_transient_503_and_recovers(self):
+        response_body = json.dumps({
+            "choices": [{"message": {"content": "Recovered answer"}}]
+        }).encode()
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def read(self, _limit):
+                return response_body
+
+        attempts = 0
+
+        def fail_then_succeed(_request, timeout):
+            nonlocal attempts
+            attempts += 1
+            if attempts < 3:
+                raise HTTPError(
+                    "https://example.test/v1/chat/completions",
+                    503,
+                    "Unavailable",
+                    {},
+                    BytesIO(b"temporary provider failure"),
+                )
+            return FakeResponse()
+
+        config = {"WELLNOTE_AI_API_KEY": "private-key", "WELLNOTE_AI_MODEL": "model"}
+        with patch.dict(os.environ, config, clear=True):
+            with patch("study.urlopen", side_effect=fail_then_succeed):
+                with patch("study.time.sleep") as sleep:
+                    answer = generate_ai_response("A general prompt")
+
+        self.assertEqual(answer, "Recovered answer")
+        self.assertEqual(attempts, 3)
+        self.assertEqual(sleep.call_count, 2)
 
     def test_practice_question_checks_answer(self):
         body = request("/study/question")["body"]

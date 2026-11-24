@@ -12,8 +12,12 @@ from wsgiref.simple_server import make_server
 
 import diseases
 from medlineplus import search_medlineplus
+import openstax
+import research_decoder
+import research_pdf
 import study
 import templates
+import textbooks
 import translations
 from youtube import search_youtube_video
 
@@ -22,6 +26,8 @@ COOKIE_NAME = "wellnote_saved"
 LANGUAGE_COOKIE_NAME = "wellnote_language"
 COOKIE_MAX_AGE = 60 * 60 * 24 * 30
 MAX_SAVED_COOKIE_LENGTH = 3800
+TEXTBOOK_COOKIE_NAME = "wellnote_textbooks"
+TEXTBOOK_COOKIE_MAX_LENGTH = 3800
 
 
 def external_saved_token(topic):
@@ -55,6 +61,70 @@ def saved_tokens(environ):
             if token not in tokens:
                 tokens.append(token)
     return tokens
+
+
+def textbook_state(environ):
+    jar = cookies.SimpleCookie()
+    try:
+        jar.load(environ.get("HTTP_COOKIE", ""))
+    except cookies.CookieError:
+        return {"bookmarks": set(), "completed": set()}
+    item = jar.get(TEXTBOOK_COOKIE_NAME)
+    if not item or len(item.value) > TEXTBOOK_COOKIE_MAX_LENGTH:
+        return {"bookmarks": set(), "completed": set()}
+    try:
+        encoded = item.value
+        data = json.loads(
+            base64.urlsafe_b64decode(
+                encoded + "=" * (-len(encoded) % 4)
+            ).decode("utf-8")
+        )
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return {"bookmarks": set(), "completed": set()}
+    if not isinstance(data, dict):
+        return {"bookmarks": set(), "completed": set()}
+
+    def valid_keys(field):
+        if not isinstance(data.get(field), list):
+            return set()
+        keys = set()
+        for value in data[field]:
+            if not isinstance(value, str) or ":" not in value:
+                continue
+            book_id, chapter_id = value.split(":", 1)
+            key = (book_id, chapter_id)
+            if key in textbooks.VALID_CHAPTER_KEYS:
+                keys.add(key)
+        return keys
+
+    return {
+        "bookmarks": valid_keys("bookmarks"),
+        "completed": valid_keys("completed"),
+    }
+
+
+def textbook_state_cookie(state):
+    data = {
+        name: sorted(f"{book_id}:{chapter_id}" for book_id, chapter_id in state[name])
+        for name in ("bookmarks", "completed")
+    }
+    return base64.urlsafe_b64encode(
+        json.dumps(data, separators=(",", ":")).encode("utf-8")
+    ).decode("ascii").rstrip("=")
+
+
+def textbook_redirect(start_response, location, state):
+    jar = cookies.SimpleCookie()
+    jar[TEXTBOOK_COOKIE_NAME] = textbook_state_cookie(state)
+    item = jar[TEXTBOOK_COOKIE_NAME]
+    item["path"] = "/"
+    item["max-age"] = COOKIE_MAX_AGE
+    item["httponly"] = True
+    item["samesite"] = "Lax"
+    return respond(
+        start_response, HTTPStatus.SEE_OTHER, b"",
+        [("Location", location), ("Set-Cookie", item.OutputString())],
+    )
 
 
 def saved_topic_names(tokens):
@@ -139,6 +209,28 @@ def respond(start_response, status, body, extra_headers=None, content_type="text
     return [payload]
 
 
+AI_PROVIDER_SETUP_MESSAGE = (
+    "This WellNote server cannot see an AI API key. Set GEMINI_API_KEY "
+    "(the model defaults to gemini-3.5-flash-lite), or set "
+    "WELLNOTE_AI_API_KEY together with WELLNOTE_AI_MODEL. The key must be "
+    "available to the server handling this request; Railway variables are not "
+    "visible to a local 127.0.0.1 preview."
+)
+
+
+def decoded_research_sections(abstract, use_ai, language):
+    if not use_ai:
+        return None, "Select AI-assisted decoding to generate the research document."
+    response = study.generate_ai_response(
+        research_decoder.make_ai_prompt(abstract), language
+    )
+    if response is None:
+        return None, AI_PROVIDER_SETUP_MESSAGE
+    if response.startswith(("The AI assistant", "The AI provider")):
+        return None, response
+    return research_decoder.parse_ai_document(response, abstract)
+
+
 def redirect(start_response, location, slugs):
     jar = cookies.SimpleCookie()
     jar[COOKIE_NAME] = ",".join(slugs)
@@ -165,6 +257,9 @@ def application(environ, start_response):
         "/static/voice-tutor.js": ("voice-tutor.js", "text/javascript; charset=utf-8"),
         "/static/body-verse.css": ("body-verse.css", "text/css; charset=utf-8"),
         "/static/body-verse.js": ("body-verse.js", "text/javascript; charset=utf-8"),
+        "/static/textbooks.css": ("textbooks.css", "text/css; charset=utf-8"),
+        "/static/research-decoder.css": ("research-decoder.css", "text/css; charset=utf-8"),
+        "/static/research-decoder.js": ("research-decoder.js", "text/javascript; charset=utf-8"),
     }
     if method == "GET" and path in static_assets:
         filename, content_type = static_assets[path]
@@ -226,7 +321,144 @@ def application(environ, start_response):
                 [("Cache-Control", "no-store")],
                 content_type="audio/wav",
             )
+        if path == "/study/research-decoder":
+            try:
+                content_length = int(environ.get("CONTENT_LENGTH") or "0")
+            except ValueError:
+                return respond(
+                    start_response, HTTPStatus.BAD_REQUEST,
+                    "A valid form submission is required.",
+                )
+            if content_length < 0 or content_length > 320_000:
+                return respond(
+                    start_response, HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                    "The research submission is too large to process.",
+                )
+            form = parse_qs(
+                environ.get("wsgi.input").read(content_length).decode("utf-8", "replace"),
+                keep_blank_values=True,
+            )
+            action = form.get("action", form.get("operation", ["decode"]))[0]
+            use_ai = form.get("use_ai", [""])[0] == "yes"
+            if action == "download":
+                document, error = research_decoder.parse_document_token(
+                    form.get("document", [""])[0]
+                )
+                if error:
+                    return respond(start_response, HTTPStatus.BAD_REQUEST, error)
+                return respond(
+                    start_response,
+                    HTTPStatus.OK,
+                    research_pdf.generate_pdf(document),
+                    [
+                        (
+                            "Content-Disposition",
+                            f'attachment; filename="{research_decoder.pdf_filename(document["sections"][0]["content"])}"',
+                        ),
+                        ("Cache-Control", "no-store"),
+                    ],
+                    content_type="application/pdf",
+                )
+            if action == "followup":
+                document, error = research_decoder.parse_document_token(
+                    form.get("document", [""])[0]
+                )
+                if error:
+                    return respond(start_response, HTTPStatus.BAD_REQUEST, error)
+                history, error = research_decoder.parse_chat_token(
+                    form.get("chat_state", [""])[0]
+                )
+                if error:
+                    return respond(start_response, HTTPStatus.BAD_REQUEST, error)
+                question = form.get("question", [""])[0].strip()
+                chat_error = None
+                followup_consent = form.get("followup_ai_consent", [""])[0] == "yes"
+                if not followup_consent:
+                    chat_error = "Confirm consent before sending this question and research context to the AI provider."
+                elif not question:
+                    chat_error = "Enter a question about this research."
+                elif len(question) > research_decoder.MAX_CHAT_QUESTION_LENGTH:
+                    chat_error = "Keep research questions to 1,000 characters."
+                else:
+                    answer = study.generate_ai_response(
+                        research_decoder.make_followup_prompt(
+                            document["paper"]["abstract"],
+                            document["sections"],
+                            history,
+                            question,
+                        ),
+                        language,
+                    )
+                    if answer is None:
+                        chat_error = AI_PROVIDER_SETUP_MESSAGE
+                    elif answer.startswith(("The AI assistant", "The AI provider")):
+                        chat_error = answer
+                    elif len(answer) > research_decoder.MAX_CHAT_ANSWER_LENGTH:
+                        chat_error = "The AI reply was too long to save. Please ask a shorter question."
+                    else:
+                        history = (
+                            history + [{"question": question, "answer": answer}]
+                        )[-research_decoder.MAX_CHAT_TURNS:]
+                chat_state = research_decoder.make_chat_token(history)
+                return respond(start_response, HTTPStatus.OK, templates.research_decoder_page(
+                    abstract_input=document["paper"]["abstract"],
+                    paper=document["paper"], sections=document["sections"],
+                    ai_assisted=True, followup_history=history,
+                    chat_state=chat_state, chat_question=question,
+                    chat_error=chat_error, use_ai=True,
+                    followup_consent=followup_consent,
+                    language=language, current_url=current_url,
+                ))
+
+            if action != "decode":
+                return respond(start_response, HTTPStatus.BAD_REQUEST, "Choose a valid research action.")
+            abstract = form.get("abstract", [""])[0].strip()
+            if not abstract:
+                return respond(start_response, HTTPStatus.OK, templates.research_decoder_page(
+                    error="Paste a research abstract before decoding.",
+                    language=language, current_url=current_url,
+                ))
+            if len(abstract) > research_decoder.MAX_ABSTRACT_LENGTH:
+                return respond(
+                    start_response, HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                    "The abstract is too long. Paste up to 12,000 characters.",
+                )
+            paper = {"title": "", "abstract": abstract, "source_url": ""}
+            sections, decode_error = decoded_research_sections(
+                abstract, use_ai, language
+            )
+            if sections:
+                paper["title"] = sections[0]["content"]
+            return respond(start_response, HTTPStatus.OK, templates.research_decoder_page(
+                abstract_input=abstract, paper=paper, sections=sections,
+                decode_error=decode_error, ai_assisted=use_ai,
+                use_ai=use_ai,
+                language=language, current_url=current_url,
+            ))
         form = parse_qs(environ.get("wsgi.input").read(int(environ.get("CONTENT_LENGTH") or "0")).decode("utf-8", "replace"))
+        if path == "/study/textbooks/state":
+            action = form.get("action", [""])[0]
+            book_id = form.get("book", [""])[0]
+            chapter_id = form.get("chapter", [""])[0]
+            key = (book_id, chapter_id)
+            if key not in textbooks.VALID_CHAPTER_KEYS or action not in (
+                "bookmark", "complete"
+            ):
+                return respond(
+                    start_response, HTTPStatus.BAD_REQUEST,
+                    "A valid textbook chapter and action are required.",
+                )
+            state = textbook_state(environ)
+            collection = "bookmarks" if action == "bookmark" else "completed"
+            if key in state[collection]:
+                state[collection].remove(key)
+            else:
+                state[collection].add(key)
+            return textbook_redirect(
+                start_response,
+                f"/study/textbooks/{book_id}/{chapter_id}",
+                state,
+            )
         if path in ("/study/ask", "/study/ask-again"):
             prompt = form.get("prompt", [""])[0]
             return respond(start_response, HTTPStatus.OK, templates.study_page(
@@ -381,6 +613,10 @@ def application(environ, start_response):
         return respond(start_response, HTTPStatus.OK, templates.body_verse_page(
             language=language, current_url=current_url,
         ))
+    if path == "/study/research-decoder":
+        return respond(start_response, HTTPStatus.OK, templates.research_decoder_page(
+            language=language, current_url=current_url,
+        ))
     if path == "/study/mind-map":
         topic = parse_qs(query_string).get("topic", [""])[0].strip()[:120]
         selected = find_local_disease(topic)
@@ -454,6 +690,56 @@ def application(environ, start_response):
             first, second, left, right, error,
             language=language, current_url=current_url,
         ))
+    if path == "/study/textbooks" or path.startswith("/study/textbooks/"):
+        state = textbook_state(environ)
+        parts = path.strip("/").split("/")
+        if len(parts) == 2:
+            query = parse_qs(query_string).get("q", [""])[0].strip()[:100]
+            subject = parse_qs(query_string).get("subject", [""])[0].strip()[:80]
+            level = parse_qs(query_string).get("level", [""])[0].strip()[:80]
+            return respond(start_response, HTTPStatus.OK, templates.textbook_library_page(
+                textbooks.BOOKS, state, query, subject, level,
+                language=language, current_url=current_url,
+            ))
+        if len(parts) == 3 and parts[2] == "search":
+            params = parse_qs(query_string)
+            query = params.get("q", [""])[0].strip()[:120]
+            field = params.get("field", [""])[0]
+            if field not in openstax.ALLOWED_FIELDS:
+                field = ""
+            results, error = openstax.search_openstax_books(query, field)
+            return respond(start_response, HTTPStatus.OK, templates.openstax_search_page(
+                query, field, results, error,
+                language=language, current_url=current_url,
+            ))
+        if len(parts) in (3, 4):
+            book = textbooks.BOOKS_BY_ID.get(parts[2])
+            if book is None:
+                status, body = templates.error_page(
+                    "Textbook not found", "Choose a title from the textbook library.",
+                    language=language, current_url=current_url,
+                )
+                return respond(start_response, status, body)
+            query = parse_qs(query_string).get("q", [""])[0].strip()[:100]
+            if len(parts) == 3:
+                return respond(start_response, HTTPStatus.OK, templates.textbook_book_page(
+                    book, state, query,
+                    language=language, current_url=current_url,
+                ))
+            chapter = textbooks.CHAPTERS_BY_ID.get((book["id"], parts[3]))
+            if chapter is None:
+                status, body = templates.error_page(
+                    "Chapter not found", "Choose a chapter from this textbook.",
+                    language=language, current_url=current_url,
+                )
+                return respond(start_response, status, body)
+            font_size = parse_qs(query_string).get("font", ["medium"])[0]
+            if font_size not in ("small", "medium", "large"):
+                font_size = "medium"
+            return respond(start_response, HTTPStatus.OK, templates.textbook_reader_page(
+                book, chapter, state, font_size, query,
+                language=language, current_url=current_url,
+            ))
     if path in ("/study", "/study/question"):
         question = None
         if path.endswith("/question"):

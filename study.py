@@ -5,6 +5,7 @@ import re
 import json
 import os
 import base64
+import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote_plus
 from urllib.request import Request, urlopen
@@ -452,7 +453,7 @@ def _ai_configuration():
             gemini_key,
             os.environ.get(
                 "GEMINI_MODEL",
-                os.environ.get("WELLNOTE_AI_MODEL", "gemini-2.5-flash"),
+                os.environ.get("WELLNOTE_AI_MODEL", "gemini-3.5-flash-lite"),
             ).strip(),
             "https://generativelanguage.googleapis.com/v1beta/openai",
         )
@@ -516,23 +517,41 @@ def generate_ai_response(prompt, language="en"):
         method="POST",
     )
     try:
-        with urlopen(request, timeout=AI_TIMEOUT_SECONDS) as response:
-            data = json.loads(response.read(2_000_000).decode("utf-8"))
+        for attempt in range(3):
+            try:
+                with urlopen(request, timeout=AI_TIMEOUT_SECONDS) as response:
+                    data = json.loads(response.read(2_000_000).decode("utf-8"))
+                break
+            except HTTPError as exc:
+                status = exc.code
+                exc.close()
+                if status in (408, 500, 502, 503, 504) and attempt < 2:
+                    base_delay = 2 ** attempt
+                    time.sleep(random.uniform(base_delay * 0.5, base_delay * 1.5))
+                    continue
+                if status in (401, 403):
+                    return (
+                        "The AI provider rejected its credentials. Check the configured "
+                        "API key and provider access, then try again."
+                    )
+                if status == 404:
+                    return (
+                        "The AI provider could not find the configured model or endpoint "
+                        "(HTTP 404). For Gemini, check GEMINI_MODEL and model access; "
+                        "the default is gemini-3.5-flash-lite."
+                    )
+                if status == 429:
+                    return "The AI provider is rate-limiting requests. Please wait a moment and try again."
+                if status in (408, 500, 502, 503, 504):
+                    return (
+                        f"The AI provider is temporarily unavailable (HTTP {status}). "
+                        "The app retried automatically; please wait a moment and try again."
+                    )
+                return f"The AI provider returned an HTTP {status} error. Please try again later."
         answer = data["choices"][0]["message"]["content"]
         if not isinstance(answer, str) or not answer.strip():
             return "The AI provider returned an empty answer. Please try again."
         return answer.strip()
-    except HTTPError as exc:
-        status = exc.code
-        exc.close()
-        if status in (401, 403):
-            return (
-                "The AI provider rejected its credentials. Check the configured "
-                "API key and provider access, then try again."
-            )
-        if status == 429:
-            return "The AI provider is rate-limiting requests. Please wait a moment and try again."
-        return f"The AI provider returned an HTTP {status} error. Please try again later."
     except (URLError, TimeoutError, OSError):
         return "The AI provider could not be reached. Check the connection and provider URL, then try again."
     except (KeyError, IndexError, TypeError, ValueError, UnicodeDecodeError):

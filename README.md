@@ -1,19 +1,21 @@
 # WellNote
 
-WellNote is a small, server-rendered medical learning app built with Python's
-standard library. Application logic, disease search, saved topics, study prompts,
-and practice-question checking run in Python; pages use HTML forms and CSS.
+WellNote is a small, server-rendered medical learning app built with Python.
+Application logic, disease search, saved topics, study prompts, and
+practice-question checking run in Python; pages use HTML forms and CSS.
 Browser scripts are reserved for browser-only speech features and the WebGL
-anatomy renderer; app routes, study behavior, and educational content remain
-server-side Python. No third-party Python packages are required. The study buddy can connect
-to a configurable OpenAI-compatible chat-completions API for general conversation
-and study help.
+anatomy renderer and the Research Decoder's input controls; app routes, study
+behavior, and educational content remain server-side Python. ReportLab is used
+to generate downloadable, multi-page research PDFs. The study buddy can connect
+to a configurable OpenAI-compatible chat-completions API for general
+conversation and study help.
 
 ## Run locally
 
-Use Python 3.9 or newer:
+Use Python 3.9 or newer and install the PDF dependency:
 
 ```text
+python -m pip install -r requirements.txt
 python app.py
 ```
 
@@ -33,7 +35,7 @@ The app does not bundle an AI model or API key. Without provider credentials,
 the study buddy uses its curated local education answers and references. To
 enable general model-generated replies with Gemini, set `GEMINI_API_KEY` and
 restart the app. It uses Gemini's OpenAI-compatible chat-completions endpoint
-and defaults to `gemini-2.5-flash`; optionally set `GEMINI_MODEL` to select
+and defaults to `gemini-3.5-flash-lite`; optionally set `GEMINI_MODEL` to select
 another available Gemini model. The key is read from the environment and must
 not be committed to the repository.
 
@@ -42,7 +44,7 @@ PowerShell:
 ```powershell
 $env:GEMINI_API_KEY = "your-gemini-api-key"
 # Optional model overrides:
-$env:GEMINI_MODEL = "gemini-2.5-flash"
+$env:GEMINI_MODEL = "gemini-3.5-flash-lite"
 $env:GEMINI_TTS_MODEL = "gemini-3.8-flash-tts"
 python app.py
 ```
@@ -51,7 +53,7 @@ POSIX shell:
 
 ```sh
 export GEMINI_API_KEY="your-gemini-api-key"
-export GEMINI_MODEL="gemini-2.5-flash"
+export GEMINI_MODEL="gemini-3.5-flash-lite"
 export GEMINI_TTS_MODEL="gemini-3.8-flash-tts"
 python app.py
 ```
@@ -102,6 +104,25 @@ for clearer pronunciation. Tutor questions are entered as text.
   curated local replies when no AI provider is configured), and spoken answers
   through browser speech features,
   introductory original practice questions, and answer explanations.
+- A paste-only Research Decoder in Study Room. After explicit consent, it sends
+  the abstract to the configured AI provider and validates a structured
+  nine-section response covering the research title, background, objective,
+  methods, results and statistics, conclusion, terminology, clinical
+  significance, and limitations. Missing details must be labeled rather than
+  invented. Learners can ask abstract-grounded follow-up questions with a
+  separate consent step, then download a branded, paginated PDF containing the
+  original abstract, decoded sections, tables, key takeaways, and an educational
+  disclaimer. The decoder does not search for papers, accept PDF uploads, or
+  claim to analyze the full paper.
+- A textbook portal inside the Study Room with curated OpenStax Anatomy and
+  Physiology 2e and Microbiology titles, subject/level filters, official chapter
+  links, in-book chapter search, adjustable reading size, browser-cookie
+  bookmarks and chapter completion progress, plus original WellNote summaries,
+  glossary terms, and self-check questions. It also searches the live OpenStax
+  catalog and displays only medical-foundation books in Physics, Chemistry,
+  Biology, and “Others” (Anatomy and Physiology), with links to each official
+  OpenStax subject page. Each curated title displays its authors, publisher,
+  source, and verified CC BY-NC-SA 4.0 license.
 - A study-buddy overview of all 13 essential vitamins, common deficiency
   findings, dietary sources, a link to NIH fact sheets, and clinical safety context.
 - A mind map generator that accepts any typed health topic. It uses WellNote's
@@ -131,6 +152,25 @@ The built-in disease library and local tutor provide curated educational
 examples—not an exhaustive database, a diagnostic system, or a full exam
 preparation course. Generative answers require the optional configured provider
 and are not guaranteed complete or correct.
+The Research Decoder requires a configured AI provider; it does not fall back
+to fabricated or canned research explanations. Abstracts can omit important
+methods, limitations, and context. AI-assisted explanations may be incorrect;
+they are prompted to use only the pasted abstract, but students should verify
+every section against the full paper. The “clinical significance” section is
+educational context, not individual care guidance. PDF study documents are not
+medical advice and should not be used for diagnosis or treatment decisions.
+Configure `GEMINI_API_KEY` or `WELLNOTE_AI_API_KEY` and `WELLNOTE_AI_MODEL` as
+described above to enable decoding and follow-up answers. Abstracts and
+follow-up context are sent to that provider only after the learner's explicit
+consent.
+The textbook portal links to publishers' official pages and does not reproduce
+their chapters. Its short summaries, glossary entries, and self-check questions
+are original WellNote learning aids. OpenStax books have title-specific terms;
+the listed titles are licensed CC BY-NC-SA 4.0, so review the linked license
+before reusing or adapting any source material. Live OpenStax search reads its
+public book-catalog metadata and links to official book pages; it does not fetch
+or display full chapter text and excludes subjects outside Physics, Chemistry,
+Biology, and Anatomy and Physiology.
 Body Verse requires WebGL and an internet connection to load Three.js and the
 selected 3D anatomy model. Depending on the selected system, the source model
 download is approximately 2–65 MB. The models are from [Z-Anatomy](https://github.com/LluisV/Z-Anatomy)
