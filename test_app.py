@@ -10,10 +10,11 @@ from urllib.parse import quote_plus
 
 import app as wellnote_app
 import body_verse
-from app import COOKIE_NAME, LANGUAGE_COOKIE_NAME, application
+from app import COOKIE_NAME, LANGUAGE_COOKIE_NAME, TEXTBOOK_COOKIE_NAME, application
 from medlineplus import search_medlineplus
 from study import EXAM_GUIDES, QUESTIONS, ai_provider_configured, generate_ai_response, make_response, next_question_id
 import translations
+import textbooks
 
 
 def request(path="/", method="GET", query="", cookie="", form="", host="localhost:8000", forwarded_proto=""):
@@ -55,6 +56,126 @@ class MedicalAppTests(unittest.TestCase):
         self.assertIn("Asthma", result["body"])
         self.assertNotIn("Type 2 diabetes</h3>", result["body"])
         self.assertIn("&lt;script&gt;", request(query="q=%3Cscript%3E")["body"])
+
+    def test_study_room_links_curated_textbook_library(self):
+        body = request("/study")["body"]
+        self.assertIn('href="/study/textbooks">Open textbook library', body)
+
+        library = request("/study/textbooks")
+        self.assertTrue(library["status"].startswith("200"))
+        for expected in (
+            "A library for learning",
+            "Anatomy and Physiology 2e",
+            "Microbiology",
+            "Introductory college",
+            "CC BY-NC-SA 4.0",
+            "Official source",
+            "Educational use only.",
+        ):
+            self.assertIn(expected, library["body"])
+
+    def test_textbook_detail_has_source_attribution_and_searchable_chapters(self):
+        detail = request("/study/textbooks/anatomy-and-physiology-2e")
+        for expected in (
+            "J. Gordon Betts",
+            "OpenStax, Rice University",
+            "CC BY-NC-SA 4.0",
+            "https://openstax.org/books/anatomy-and-physiology-2e",
+            "Chapter 1: An Introduction to the Human Body",
+            "Chapter 3: The Cellular Level of Organization",
+            "A link-out reader, not a copy.",
+        ):
+            self.assertIn(expected, detail["body"])
+        self.assertIn("https://openstax.org/books/anatomy-and-physiology-2e/pages/3-the-cellular-level-of-organization", detail["body"])
+
+        searched = request(
+            "/study/textbooks/anatomy-and-physiology-2e",
+            query="q=lymphocyte",
+        )["body"]
+        self.assertIn("The Lymphatic System and Immunity", searched)
+        self.assertNotIn("An Introduction to the Human Body", searched)
+
+        filtered = request("/study/textbooks", query="subject=Microbiology+%26+infection")
+        self.assertIn("Microbiology</a>", filtered["body"])
+        self.assertNotIn("Anatomy and Physiology 2e</a>", filtered["body"])
+        self.assertIn("&lt;script&gt;", request("/study/textbooks", query="q=%3Cscript%3E")["body"])
+
+    def test_textbook_reader_controls_search_and_original_study_aids(self):
+        reader = request(
+            "/study/textbooks/microbiology/antimicrobial-drugs",
+            query="font=large",
+        )
+        for expected in (
+            'class="textbook-reading-pane large"',
+            "font-controls",
+            "GLOSSARY",
+            "Selective toxicity",
+            "REVIEW QUESTIONS",
+            "Reveal a sample answer",
+            "original WellNote learning aids",
+            "Read full chapter at OpenStax",
+            "https://openstax.org/books/microbiology/pages/14-antimicrobial-drugs",
+            "CC BY-NC-SA 4.0",
+        ):
+            self.assertIn(expected, reader["body"])
+        search_results = request(
+            "/study/textbooks/microbiology/antimicrobial-drugs",
+            query="q=incidence",
+        )["body"]
+        self.assertIn("Search results for “incidence”", search_results)
+        self.assertIn("Chapter 16: Disease and Epidemiology", search_results)
+
+        invalid_font = request(
+            "/study/textbooks/microbiology/antimicrobial-drugs",
+            query="font=huge",
+        )["body"]
+        self.assertIn('class="textbook-reading-pane medium"', invalid_font)
+        self.assertTrue(request("/study/textbooks/no-such-book")["status"].startswith("404"))
+        self.assertTrue(request("/study/textbooks/microbiology/no-such-chapter")["status"].startswith("404"))
+        self.assertIn(".textbook-reader-layout", request("/static/textbooks.css")["body"])
+
+    def test_textbook_bookmarks_and_completion_progress_persist_in_cookie(self):
+        first = request(
+            "/study/textbooks/state",
+            method="POST",
+            form="action=bookmark&book=anatomy-and-physiology-2e&chapter=cellular-level",
+        )
+        self.assertTrue(first["status"].startswith("303"))
+        self.assertEqual(
+            first["headers"]["Location"],
+            "/study/textbooks/anatomy-and-physiology-2e/cellular-level",
+        )
+        cookie = first["headers"]["Set-Cookie"].split(";", 1)[0]
+        self.assertIn(TEXTBOOK_COOKIE_NAME, cookie)
+        reader = request(
+            "/study/textbooks/anatomy-and-physiology-2e/cellular-level",
+            cookie=cookie,
+        )["body"]
+        self.assertIn("Remove bookmark", reader)
+
+        completed = request(
+            "/study/textbooks/state",
+            method="POST",
+            cookie=cookie,
+            form="action=complete&book=anatomy-and-physiology-2e&chapter=cellular-level",
+        )
+        updated_cookie = completed["headers"]["Set-Cookie"].split(";", 1)[0]
+        reader = request(
+            "/study/textbooks/anatomy-and-physiology-2e/cellular-level",
+            cookie=updated_cookie,
+        )["body"]
+        self.assertIn("Mark as unread", reader)
+        self.assertIn("1/4 selected chapters · 25%", reader)
+        library = request("/study/textbooks", cookie=updated_cookie)["body"]
+        self.assertIn("YOUR BOOKMARKS", library)
+        self.assertIn("Chapter 3: The Cellular Level of Organization", library)
+
+        invalid = request(
+            "/study/textbooks/state",
+            method="POST",
+            form="action=bookmark&book=unknown&chapter=bad",
+        )
+        self.assertTrue(invalid["status"].startswith("400"))
 
     def test_hindi_language_switcher_localizes_guides_and_remembers_choice(self):
         english = request("/disease/asthma")
