@@ -140,14 +140,16 @@ def _preserve_unreported_numbers(sections, abstract):
     if not missing:
         return sections
 
-    results = sections[4]["content"]
+    candidate = [dict(section) for section in sections]
+    candidate[4]["content"] = list(sections[4]["content"])
+    results = candidate[4]["content"]
     available_rows = MAX_TABLE_ROWS - len(results)
     if available_rows <= 0:
         return sections
 
     for match in missing:
         current_numbers = set(
-            re.findall(number_pattern, json.dumps(sections, ensure_ascii=False))
+            re.findall(number_pattern, json.dumps(candidate, ensure_ascii=False))
         )
         if match.group(0) in current_numbers:
             continue
@@ -170,7 +172,7 @@ def _preserve_unreported_numbers(sections, abstract):
         available_rows -= 1
 
     validated, error = validate_sections({
-        section["title"]: section["content"] for section in sections
+        section["title"]: section["content"] for section in candidate
     })
     return sections if error else validated
 

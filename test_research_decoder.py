@@ -104,6 +104,40 @@ class ResearchDecoderTests(unittest.TestCase):
             [row["reported_value"] for row in document[4]["content"]],
         )
 
+    def test_numeric_supplement_does_not_invalidate_large_decoded_documents(self):
+        sections = valid_sections()
+        base_length = sum(
+            len(value) if isinstance(value, str)
+            else sum(
+                len(item[field]) for item in value for field in item
+            ) if isinstance(value, list)
+            else sum(len(text) for text in value.values())
+            for value in sections.values()
+        )
+        remaining = research_decoder.MAX_DOCUMENT_TEXT_LENGTH - 10 - base_length
+        for title in research_decoder.STRING_SECTION_TITLES:
+            current = sections[title]
+            addition_length = min(
+                research_decoder.MAX_SECTION_LENGTH - len(current),
+                remaining,
+            )
+            sections[title] = current + ("x" * addition_length)
+            remaining -= addition_length
+        self.assertEqual(remaining, 0)
+        document, error = research_decoder.parse_ai_document(
+            json.dumps({"sections": sections}),
+            "RESULTS: This outcome was 87654321.",
+        )
+        self.assertIsNone(error)
+        validated, validation_error = research_decoder.validate_sections({
+            section["title"]: section["content"] for section in document
+        })
+        self.assertIsNone(validation_error)
+        self.assertEqual(
+            document[4]["content"],
+            sections["Important results and statistics"],
+        )
+
     def test_document_token_round_trips_validated_abstract_and_sections(self):
         abstract = "BACKGROUND: A study. RESULTS: The reported estimate was 12%."
         paper = {"title": valid_sections()["Research title"], "abstract": abstract}
