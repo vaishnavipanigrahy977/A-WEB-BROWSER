@@ -32,8 +32,42 @@ def request(path="/", method="GET", query="", cookie="", form="", host="localhos
         "CONTENT_LENGTH": str(len(form.encode())),
         "wsgi.input": BytesIO(form.encode()),
     }, start_response)
-    result["body"] = b"".join(body).decode()
+    result["body_bytes"] = b"".join(body)
+    result["body"] = result["body_bytes"].decode("utf-8", "replace")
     return result
+
+
+def research_ai_sections():
+    return {
+        "Research title": "AI-generated descriptive title: Sample study",
+        "Background": "A study evaluates an educational medical question.",
+        "Objective": "To compare the reported outcomes.",
+        "Study design and methodology": "The researchers studied 40 participants.",
+        "Important results and statistics": [
+            {
+                "finding": "Primary outcome",
+                "reported_value": "12%; p=0.04 (95% CI 1.1–2.4)",
+                "interpretation": "The observed result was statistically significant, not necessarily clinically important.",
+            }
+        ],
+        "Conclusion": {
+            "authors_conclusion": "The authors reported a difference.",
+            "simplified_interpretation": "The study found a difference in the measured outcome.",
+        },
+        "Difficult terminology explained": [
+            {
+                "medical_term": "Confidence interval",
+                "simple_meaning": "A range that describes uncertainty around an estimate.",
+                "relevance_to_this_study": "It describes the precision of the reported estimate.",
+            }
+        ],
+        "Clinical significance": "The finding may guide further research, not individual care.",
+        "Limitations of the study": {
+            "stated_by_authors": "The authors reported limited follow-up.",
+            "potentially_inferred": "Selection methods are not described.",
+            "not_reported_in_abstract": "The setting was not reported in the abstract.",
+        },
+    }
 
 
 class MedicalAppTests(unittest.TestCase):
@@ -61,6 +95,7 @@ class MedicalAppTests(unittest.TestCase):
     def test_study_room_links_curated_textbook_library(self):
         body = request("/study")["body"]
         self.assertIn('href="/study/textbooks">Open textbook library', body)
+        self.assertIn('href="/study/research-decoder">Research decoder', body)
 
         library = request("/study/textbooks")
         self.assertTrue(library["status"].startswith("200"))
@@ -74,6 +109,181 @@ class MedicalAppTests(unittest.TestCase):
             "Educational use only.",
         ):
             self.assertIn(expected, library["body"])
+
+    def test_research_decoder_is_paste_only_and_exposes_interactive_controls(self):
+        body = request("/study/research-decoder")["body"]
+        for expected in (
+            "Understand research papers. Decode medical science. Learn smarter.",
+            'name="abstract"',
+            "Paste your research abstract",
+            "research-counter",
+            "Clear text",
+            "Decode Abstract",
+            "research-decoder.js",
+            "checkbox",
+            "I agree to send this abstract",
+        ):
+            self.assertIn(expected, body)
+        for obsolete in ('name="query"', "Europe PMC", "DOI", "PMID", "type=\"file\""):
+            self.assertNotIn(obsolete, body)
+        script = request("/static/research-decoder.js")
+        self.assertIn("words", script["body"])
+        self.assertIn("followupSubmitted", script["body"])
+
+    def test_research_decoder_requires_explicit_ai_consent_and_preserves_abstract(self):
+        abstract = "METHODS: Forty participants were enrolled."
+        with patch("app.study.generate_ai_response") as model:
+            result = request(
+                "/study/research-decoder",
+                method="POST",
+                form="action=decode&abstract=" + quote_plus(abstract),
+            )
+        model.assert_not_called()
+        self.assertIn("Select AI-assisted decoding", result["body"])
+        self.assertIn(abstract, result["body"])
+        self.assertNotIn("Download Decoded PDF", result["body"])
+
+    def test_research_decoder_displays_all_ai_sections_and_statistics(self):
+        abstract = "OBJECTIVE: Compare outcomes. RESULTS: 12%; p=0.04."
+        ai_sections = research_ai_sections()
+        ai_sections["Background"] = "Safe text <unsafe> & details."
+        with patch(
+            "app.study.generate_ai_response",
+            return_value=json.dumps({"sections": ai_sections}),
+        ) as model:
+            result = request(
+                "/study/research-decoder",
+                method="POST",
+                form="action=decode&abstract=" + quote_plus(abstract) + "&use_ai=yes",
+            )
+
+        model.assert_called_once()
+        self.assertIn(abstract, model.call_args.args[0])
+        for expected in (
+            "Research title",
+            "Background",
+            "Objective",
+            "Study design and methodology",
+            "Important results and statistics",
+            "Conclusion",
+            "Difficult terminology explained",
+            "Clinical significance",
+            "Limitations of the study",
+            "12%; p=0.04 (95% CI 1.1–2.4)",
+            "Authors’ conclusion",
+            "Potentially inferred concerns",
+            "Ask Questions About This Research",
+            "Download Decoded PDF",
+            "Safe text &lt;unsafe&gt; &amp; details.",
+        ):
+            self.assertIn(expected, result["body"])
+        self.assertNotIn("Safe text <unsafe>", result["body"])
+
+    def test_research_decoder_reports_missing_provider_and_keeps_original_text(self):
+        abstract = "An abstract that should stay visible after provider failure."
+        with patch("app.study.generate_ai_response", return_value=None):
+            result = request(
+                "/study/research-decoder",
+                method="POST",
+                form="action=decode&abstract=" + quote_plus(abstract) + "&use_ai=yes",
+            )
+        self.assertIn("This WellNote server cannot see an AI API key", result["body"])
+        self.assertIn("local 127.0.0.1 preview", result["body"])
+        self.assertIn(abstract, result["body"])
+        self.assertNotIn("Download Decoded PDF", result["body"])
+
+    def test_research_decoder_rejects_invalid_ai_schema_without_fake_output(self):
+        abstract = "METHODS: Participants were studied."
+        with patch("app.study.generate_ai_response", return_value="unstructured model output"):
+            result = request(
+                "/study/research-decoder",
+                method="POST",
+                form="action=decode&abstract=" + quote_plus(abstract) + "&use_ai=yes",
+            )
+        self.assertIn("did not return a valid research document", result["body"])
+        self.assertIn(abstract, result["body"])
+        self.assertNotIn("Download Decoded PDF", result["body"])
+
+    def test_research_decoder_downloads_pdf_from_actual_decoded_document(self):
+        abstract = "OBJECTIVE: Compare outcomes. RESULTS: The outcome was 12%."
+        with patch(
+            "app.study.generate_ai_response",
+            return_value=json.dumps({"sections": research_ai_sections()}),
+        ):
+            decoded = request(
+                "/study/research-decoder",
+                method="POST",
+                form="action=decode&abstract=" + quote_plus(abstract) + "&use_ai=yes",
+            )
+        token = re.search(r'name="document" value="([A-Za-z0-9_-]+)"', decoded["body"])
+        self.assertIsNotNone(token)
+        downloaded = request(
+            "/study/research-decoder",
+            method="POST",
+            form="action=download&document=" + token.group(1),
+        )
+        self.assertTrue(downloaded["status"].startswith("200"))
+        self.assertEqual(downloaded["headers"]["Content-Type"], "application/pdf")
+        self.assertIn("Wellnote_Research_Decoder_", downloaded["headers"]["Content-Disposition"])
+        self.assertTrue(downloaded["body_bytes"].startswith(b"%PDF-1.4"))
+        self.assertTrue(downloaded["body_bytes"].endswith(b"%%EOF\n"))
+        invalid = request(
+            "/study/research-decoder",
+            method="POST",
+            form="action=download&document=not-a-valid-token",
+        )
+        self.assertTrue(invalid["status"].startswith("400"))
+
+    def test_research_decoder_followup_is_abstract_grounded_and_requires_consent(self):
+        abstract = "METHODS: Forty adults participated. RESULTS: p=0.04."
+        with patch(
+            "app.study.generate_ai_response",
+            return_value=json.dumps({"sections": research_ai_sections()}),
+        ):
+            decoded = request(
+                "/study/research-decoder",
+                method="POST",
+                form="action=decode&abstract=" + quote_plus(abstract) + "&use_ai=yes",
+            )
+        token = re.search(r'name="document" value="([A-Za-z0-9_-]+)"', decoded["body"]).group(1)
+        with patch("app.study.generate_ai_response") as model:
+            no_consent = request(
+                "/study/research-decoder",
+                method="POST",
+                form="action=followup&document=" + token + "&question=What+does+p+mean%3F",
+            )
+        model.assert_not_called()
+        self.assertIn("Confirm consent", no_consent["body"])
+
+        with patch("app.study.generate_ai_response", return_value="It is a statistical result.") as model:
+            answer = request(
+                "/study/research-decoder",
+                method="POST",
+                form=(
+                    "action=followup&document=" + token
+                    + "&question=What+does+p%3D0.04+mean%3F"
+                    + "&followup_ai_consent=yes"
+                ),
+            )
+        self.assertIn(abstract, model.call_args.args[0])
+        self.assertIn("Objective", model.call_args.args[0])
+        self.assertIn("What does p=0.04 mean?", model.call_args.args[0])
+        self.assertIn("It is a statistical result.", answer["body"])
+        self.assertIn(abstract, answer["body"])
+
+    def test_research_decoder_validates_empty_and_oversized_abstracts(self):
+        empty = request(
+            "/study/research-decoder",
+            method="POST",
+            form="action=decode&abstract=",
+        )
+        self.assertIn("Paste a research abstract", empty["body"])
+        oversized = request(
+            "/study/research-decoder",
+            method="POST",
+            form="action=decode&abstract=" + ("a" * 12_001),
+        )
+        self.assertTrue(oversized["status"].startswith("413"))
 
     def test_textbook_detail_has_source_attribution_and_searchable_chapters(self):
         detail = request("/study/textbooks/anatomy-and-physiology-2e")
@@ -1173,7 +1383,7 @@ class MedicalAppTests(unittest.TestCase):
             captured["url"],
             "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
         )
-        self.assertEqual(captured["payload"]["model"], "gemini-2.5-flash")
+        self.assertEqual(captured["payload"]["model"], "gemini-3.5-flash-lite")
         self.assertEqual(
             captured["headers"]["Authorization"],
             "Bearer test-gemini-key",
@@ -1307,6 +1517,17 @@ class MedicalAppTests(unittest.TestCase):
                 answer = generate_ai_response("A general prompt")
         self.assertIn("HTTP 503", answer)
         self.assertNotIn("provider internals", answer)
+
+        missing_model = HTTPError(
+            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+            404, "Not Found", {}, BytesIO(b"model details"),
+        )
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}, clear=True):
+            with patch("study.urlopen", side_effect=missing_model):
+                answer = generate_ai_response("A research prompt")
+        self.assertIn("GEMINI_MODEL", answer)
+        self.assertIn("gemini-3.5-flash-lite", answer)
+        self.assertNotIn("model details", answer)
 
     def test_practice_question_checks_answer(self):
         body = request("/study/question")["body"]

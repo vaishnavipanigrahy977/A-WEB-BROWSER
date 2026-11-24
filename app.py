@@ -13,6 +13,8 @@ from wsgiref.simple_server import make_server
 import diseases
 from medlineplus import search_medlineplus
 import openstax
+import research_decoder
+import research_pdf
 import study
 import templates
 import textbooks
@@ -207,6 +209,28 @@ def respond(start_response, status, body, extra_headers=None, content_type="text
     return [payload]
 
 
+AI_PROVIDER_SETUP_MESSAGE = (
+    "This WellNote server cannot see an AI API key. Set GEMINI_API_KEY "
+    "(the model defaults to gemini-3.5-flash-lite), or set "
+    "WELLNOTE_AI_API_KEY together with WELLNOTE_AI_MODEL. The key must be "
+    "available to the server handling this request; Railway variables are not "
+    "visible to a local 127.0.0.1 preview."
+)
+
+
+def decoded_research_sections(abstract, use_ai, language):
+    if not use_ai:
+        return None, "Select AI-assisted decoding to generate the research document."
+    response = study.generate_ai_response(
+        research_decoder.make_ai_prompt(abstract), language
+    )
+    if response is None:
+        return None, AI_PROVIDER_SETUP_MESSAGE
+    if response.startswith(("The AI assistant", "The AI provider")):
+        return None, response
+    return research_decoder.parse_ai_document(response, abstract)
+
+
 def redirect(start_response, location, slugs):
     jar = cookies.SimpleCookie()
     jar[COOKIE_NAME] = ",".join(slugs)
@@ -234,6 +258,8 @@ def application(environ, start_response):
         "/static/body-verse.css": ("body-verse.css", "text/css; charset=utf-8"),
         "/static/body-verse.js": ("body-verse.js", "text/javascript; charset=utf-8"),
         "/static/textbooks.css": ("textbooks.css", "text/css; charset=utf-8"),
+        "/static/research-decoder.css": ("research-decoder.css", "text/css; charset=utf-8"),
+        "/static/research-decoder.js": ("research-decoder.js", "text/javascript; charset=utf-8"),
     }
     if method == "GET" and path in static_assets:
         filename, content_type = static_assets[path]
@@ -295,6 +321,120 @@ def application(environ, start_response):
                 [("Cache-Control", "no-store")],
                 content_type="audio/wav",
             )
+        if path == "/study/research-decoder":
+            try:
+                content_length = int(environ.get("CONTENT_LENGTH") or "0")
+            except ValueError:
+                return respond(
+                    start_response, HTTPStatus.BAD_REQUEST,
+                    "A valid form submission is required.",
+                )
+            if content_length < 0 or content_length > 320_000:
+                return respond(
+                    start_response, HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                    "The research submission is too large to process.",
+                )
+            form = parse_qs(
+                environ.get("wsgi.input").read(content_length).decode("utf-8", "replace"),
+                keep_blank_values=True,
+            )
+            action = form.get("action", ["decode"])[0]
+            use_ai = form.get("use_ai", [""])[0] == "yes"
+            if action == "download":
+                document, error = research_decoder.parse_document_token(
+                    form.get("document", [""])[0]
+                )
+                if error:
+                    return respond(start_response, HTTPStatus.BAD_REQUEST, error)
+                return respond(
+                    start_response,
+                    HTTPStatus.OK,
+                    research_pdf.generate_pdf(document),
+                    [
+                        (
+                            "Content-Disposition",
+                            f'attachment; filename="{research_decoder.pdf_filename(document["sections"][0]["content"])}"',
+                        ),
+                        ("Cache-Control", "no-store"),
+                    ],
+                    content_type="application/pdf",
+                )
+            if action == "followup":
+                document, error = research_decoder.parse_document_token(
+                    form.get("document", [""])[0]
+                )
+                if error:
+                    return respond(start_response, HTTPStatus.BAD_REQUEST, error)
+                history, error = research_decoder.parse_chat_token(
+                    form.get("chat_state", [""])[0]
+                )
+                if error:
+                    return respond(start_response, HTTPStatus.BAD_REQUEST, error)
+                question = form.get("question", [""])[0].strip()
+                chat_error = None
+                followup_consent = form.get("followup_ai_consent", [""])[0] == "yes"
+                if not followup_consent:
+                    chat_error = "Confirm consent before sending this question and research context to the AI provider."
+                elif not question:
+                    chat_error = "Enter a question about this research."
+                elif len(question) > research_decoder.MAX_CHAT_QUESTION_LENGTH:
+                    chat_error = "Keep research questions to 1,000 characters."
+                else:
+                    answer = study.generate_ai_response(
+                        research_decoder.make_followup_prompt(
+                            document["paper"]["abstract"],
+                            document["sections"],
+                            history,
+                            question,
+                        ),
+                        language,
+                    )
+                    if answer is None:
+                        chat_error = AI_PROVIDER_SETUP_MESSAGE
+                    elif answer.startswith(("The AI assistant", "The AI provider")):
+                        chat_error = answer
+                    elif len(answer) > research_decoder.MAX_CHAT_ANSWER_LENGTH:
+                        chat_error = "The AI reply was too long to save. Please ask a shorter question."
+                    else:
+                        history = (
+                            history + [{"question": question, "answer": answer}]
+                        )[-research_decoder.MAX_CHAT_TURNS:]
+                chat_state = research_decoder.make_chat_token(history)
+                return respond(start_response, HTTPStatus.OK, templates.research_decoder_page(
+                    abstract_input=document["paper"]["abstract"],
+                    paper=document["paper"], sections=document["sections"],
+                    ai_assisted=True, followup_history=history,
+                    chat_state=chat_state, chat_question=question,
+                    chat_error=chat_error, use_ai=True,
+                    followup_consent=followup_consent,
+                    language=language, current_url=current_url,
+                ))
+
+            if action != "decode":
+                return respond(start_response, HTTPStatus.BAD_REQUEST, "Choose a valid research action.")
+            abstract = form.get("abstract", [""])[0].strip()
+            if not abstract:
+                return respond(start_response, HTTPStatus.OK, templates.research_decoder_page(
+                    error="Paste a research abstract before decoding.",
+                    language=language, current_url=current_url,
+                ))
+            if len(abstract) > research_decoder.MAX_ABSTRACT_LENGTH:
+                return respond(
+                    start_response, HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                    "The abstract is too long. Paste up to 12,000 characters.",
+                )
+            paper = {"title": "", "abstract": abstract, "source_url": ""}
+            sections, decode_error = decoded_research_sections(
+                abstract, use_ai, language
+            )
+            if sections:
+                paper["title"] = sections[0]["content"]
+            return respond(start_response, HTTPStatus.OK, templates.research_decoder_page(
+                abstract_input=abstract, paper=paper, sections=sections,
+                decode_error=decode_error, ai_assisted=use_ai,
+                use_ai=use_ai,
+                language=language, current_url=current_url,
+            ))
         form = parse_qs(environ.get("wsgi.input").read(int(environ.get("CONTENT_LENGTH") or "0")).decode("utf-8", "replace"))
         if path == "/study/textbooks/state":
             action = form.get("action", [""])[0]
@@ -471,6 +611,10 @@ def application(environ, start_response):
         ))
     if path == "/study/body-verse":
         return respond(start_response, HTTPStatus.OK, templates.body_verse_page(
+            language=language, current_url=current_url,
+        ))
+    if path == "/study/research-decoder":
+        return respond(start_response, HTTPStatus.OK, templates.research_decoder_page(
             language=language, current_url=current_url,
         ))
     if path == "/study/mind-map":

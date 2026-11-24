@@ -487,6 +487,165 @@ def disease_comparison_page(first="", second="", left=None, right=None, error=No
     return layout("Disease comparison", content, "study", language, current_url)
 
 
+def research_decoder_page(
+    abstract_input="",
+    paper=None,
+    sections=None,
+    decode_error=None,
+    ai_assisted=False,
+    error=None,
+    use_ai=False,
+    followup_history=None,
+    chat_state="",
+    chat_error=None,
+    chat_question="",
+    followup_consent=False,
+    language="en",
+    current_url="/",
+):
+    import research_decoder
+
+    followup_history = followup_history or []
+    checked = " checked" if use_ai else ""
+    form = f"""
+        <form action="/study/research-decoder" method="post" class="research-form" id="research-decoder-form">
+          <input type="hidden" name="action" value="decode">
+          <label for="research-abstract">Paste your research abstract</label>
+          <textarea id="research-abstract" name="abstract" rows="9" maxlength="{research_decoder.MAX_ABSTRACT_LENGTH}" required aria-describedby="research-counter research-input-help" placeholder="Copy your medical research abstract from PubMed or a scientific journal and paste it here...">{e(abstract_input)}</textarea>
+          <div class="research-input-meta"><span id="research-counter" aria-live="polite">0 words · 0 / {research_decoder.MAX_ABSTRACT_LENGTH:,} characters</span><button class="research-clear" id="research-clear" type="button">Clear text</button></div>
+          <p id="research-input-help">Paste abstract text only (up to {research_decoder.MAX_ABSTRACT_LENGTH:,} characters). Do not include personal or identifying health information.</p>
+          <label class="research-consent"><input type="checkbox" name="use_ai" value="yes"{checked} required> I agree to send this abstract to the AI provider configured for WellNote so it can generate the explanation. The provider may process the text under its own terms.</label>
+          <button class="button button-dark" type="submit" id="research-decode-button">Decode Abstract</button>
+          <div class="research-loading" id="research-loading" role="status" aria-live="polite" hidden>
+            <span class="research-spinner" aria-hidden="true"></span><span id="research-loading-message">Reading your research abstract...</span>
+          </div>
+        </form>
+    """
+    error_html = f'<p class="research-error" role="alert">{e(error)}</p>' if error else ""
+    decode_error_html = (
+        f'<p class="research-error" role="alert">{e(decode_error)}</p>'
+        if decode_error else ""
+    )
+
+    def paragraph(text):
+        return e(text).replace("\n", "<br>")
+
+    def render_table(headers, rows, fields, empty_message):
+        if not rows:
+            return f'<p class="research-empty-table">{e(empty_message)}</p>'
+        head = "".join(f"<th scope=\"col\">{e(label)}</th>" for label in headers)
+        body = "".join(
+            "<tr>" + "".join(
+                f"<td>{paragraph(row[field])}</td>" for field in fields
+            ) + "</tr>"
+            for row in rows
+        )
+        return f'<div class="research-table-wrap"><table class="research-data-table"><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
+
+    paper_html = ""
+    if paper:
+        sections = sections or []
+        token = ""
+        download = ""
+        chat_html = ""
+        section_cards = []
+        if sections:
+            for index, section in enumerate(sections, 1):
+                title = section["title"]
+                data = section["content"]
+                if title == "Important results and statistics":
+                    body = render_table(
+                        ("Finding", "Reported value", "What it means"),
+                        data,
+                        research_decoder.RESULT_FIELDS,
+                        "No numerical results were reported in the abstract.",
+                    )
+                elif title == "Difficult terminology explained":
+                    body = render_table(
+                        ("Medical term", "Simple meaning", "Relevance to this study"),
+                        data,
+                        research_decoder.TERM_FIELDS,
+                        "No difficult medical terms were identified in the abstract.",
+                    )
+                elif title == "Conclusion":
+                    body = (
+                        f'<div class="research-conclusion-part"><h4>Authors’ conclusion</h4><p>{paragraph(data["authors_conclusion"])}</p></div>'
+                        f'<div class="research-conclusion-part"><h4>Simplified interpretation</h4><p>{paragraph(data["simplified_interpretation"])}</p></div>'
+                    )
+                elif title == "Limitations of the study":
+                    body = "".join(
+                        f'<div class="research-limit-part"><h4>{e(label)}</h4><p>{paragraph(data[key])}</p></div>'
+                        for label, key in (
+                            ("Stated by the authors", "stated_by_authors"),
+                            ("Potentially inferred concerns", "potentially_inferred"),
+                            ("Not reported in the abstract", "not_reported_in_abstract"),
+                        )
+                    )
+                else:
+                    body = f'<p>{paragraph(data)}</p>'
+                section_cards.append(
+                    f'<section class="research-document-section"><h3><span>{index:02d}</span>{e(title)}</h3>{body}</section>'
+                )
+            try:
+                token = research_decoder.make_document_token(paper, sections)
+                download = (
+                    '<form action="/study/research-decoder" method="post" class="research-download">'
+                    '<input type="hidden" name="action" value="download">'
+                    f'<input type="hidden" name="document" value="{e(token)}">'
+                    '<button class="button button-dark" type="submit">Download Decoded PDF</button></form>'
+                )
+            except ValueError as exc:
+                download = f'<p class="research-error" role="alert">PDF unavailable: {e(exc)}</p>'
+
+            chat_state = chat_state or research_decoder.make_chat_token(followup_history)
+            chat_turns = "".join(
+                f'<article class="research-chat-turn"><div class="research-chat-question"><span>You asked</span><p>{paragraph(turn["question"])}</p></div>'
+                f'<div class="research-chat-answer"><span>Study assistant</span><p>{paragraph(turn["answer"])}</p></div></article>'
+                for turn in followup_history
+            )
+            chat_error_html = (
+                f'<p class="research-error" role="alert">{e(chat_error)}</p>'
+                if chat_error else ""
+            )
+            chat_html = (
+                '<section class="research-chat"><div class="research-chat-heading"><span class="eyebrow">KEEP LEARNING</span>'
+                '<h3>Ask Questions About This Research</h3><p>Ask about the study design, results, terminology, limitations, or exam takeaways. Answers use the pasted abstract and this decoded document.</p></div>'
+                f'<div class="research-chat-history">{chat_turns}</div>{chat_error_html}'
+                '<form action="/study/research-decoder" method="post" class="research-followup-form">'
+                '<input type="hidden" name="action" value="followup">'
+                f'<input type="hidden" name="document" value="{e(token)}">'
+                f'<input type="hidden" name="chat_state" value="{e(chat_state)}">'
+                f'<label for="research-question">Your question</label><textarea id="research-question" name="question" rows="3" maxlength="{research_decoder.MAX_CHAT_QUESTION_LENGTH}" required placeholder="For example: What does the confidence interval tell me?">{e(chat_question)}</textarea>'
+                f'<label class="research-consent"><input type="checkbox" name="followup_ai_consent" value="yes"{" checked" if followup_consent else ""} required> I agree to send this question, the abstract, and decoded sections to the configured AI provider.</label>'
+                '<button class="button button-outline" type="submit">Ask about this research</button></form>'
+                '</section>'
+            )
+        paper_html = (
+            '<article class="research-paper"><header class="research-paper-header">'
+            '<span class="eyebrow">YOUR ABSTRACT · EDUCATIONAL STUDY AID</span>'
+            f'<h2>{e(paper.get("title") or "Research abstract")}</h2>'
+            '<p class="research-citation">The pasted abstract is the only source analyzed. The full paper and citation have not been independently verified.</p>'
+            f'<div class="research-document-actions">{download}</div></header>'
+            f'{decode_error_html}'
+            f'{"".join(section_cards)}'
+            f'{chat_html}'
+            '</article>'
+        )
+
+    content = (
+        '<section class="simple-hero research-hero"><a class="back-link" href="/study">← Study room</a>'
+        '<span class="eyebrow">UNDERSTAND RESEARCH · LEARN SMARTER</span>'
+        '<h1>Research Decoder<span class="brand-period">.</span></h1>'
+        '<p>Understand research papers. Decode medical science. Learn smarter.</p></section>'
+        f'{form}{error_html}{paper_html}'
+        f'{notice("Educational research learning, not medical advice.", "AI explanations may be wrong and abstracts may omit important context. Verify claims against the original paper; this tool does not diagnose, recommend treatment, or analyze the full paper.")}'
+    )
+    return layout(
+        "Research decoder", content, "study", language, current_url,
+        '<link rel="stylesheet" href="/static/research-decoder.css"><script src="/static/research-decoder.js" defer></script>',
+    )
+
+
 def study_page(diseases, greeting, response=None, question=None, selected=None, result=None, prompt=None, language="en", current_url="/"):
     import study
 
@@ -500,7 +659,7 @@ def study_page(diseases, greeting, response=None, question=None, selected=None, 
         else
         "No AI model is configured in this app, so replies use curated local study "
         "content. To use Gemini, set GEMINI_API_KEY; the default model is "
-        "gemini-2.5-flash. For other providers, see README.md. For personal medical "
+        "gemini-3.5-flash-lite. For other providers, see README.md. For personal medical "
         "concerns, consult a qualified health professional."
     )
     lesson_cards = "".join(
@@ -533,7 +692,7 @@ def study_page(diseases, greeting, response=None, question=None, selected=None, 
         question_form = f'<div class="quiz-card"><span class="eyebrow">{e(question["subject"])} · {e(practice_label)}</span><h2>{e(question["question"])}</h2><form action="/study/answer/{e(question["id"])}" method="post" class="answer-form">{options}<button class="button button-dark" type="submit">Check answer</button></form>{feedback}<a class="button button-outline next-question" href="/study/question?after={quote(question["id"], safe="")}">Next question →</a></div>'
         content = f'<section class="simple-hero"><span class="eyebrow">PRACTICE, AT YOUR PACE</span><h1>One question at a time<span class="brand-period">.</span></h1><p>Original introductory examples. Check your reasoning with each explanation.</p></section><section class="practice-layout">{question_form}{bot}</section>{notice("Original practice only.", "These introductory questions are not official NEET, MCAT, or AAMC exam items and do not represent the full syllabus.")}'
     else:
-        intro = '<section class="study-intro"><div><span class="eyebrow">A GENTLER WAY TO LEARN</span><h1>Welcome to your<br><span>study room.</span></h1><p>Short reviews, original practice, and a small study companion—no pressure, just a little more understanding.</p><div class="study-actions"><a class="button button-dark" href="/study/question">Try a practice question →</a><a class="button button-outline" href="/study/textbooks">Open textbook library →</a><a class="button button-outline" href="/study/body-verse">Explore Body Verse →</a><a class="button button-outline" href="/study/mind-map">Generate a mind map</a><a class="button button-outline" href="/study/flashcards">Smart flashcards</a><a class="button button-outline" href="/study/compare">Compare diseases</a></div></div><div class="study-illustration" aria-hidden="true"><span class="study-plant">✳</span><span class="study-book">✎</span><span class="study-underline"></span></div></section>'
+        intro = '<section class="study-intro"><div><span class="eyebrow">A GENTLER WAY TO LEARN</span><h1>Welcome to your<br><span>study room.</span></h1><p>Short reviews, original practice, and a small study companion—no pressure, just a little more understanding.</p><div class="study-actions"><a class="button button-dark" href="/study/question">Try a practice question →</a><a class="button button-outline" href="/study/textbooks">Open textbook library →</a><a class="button button-outline" href="/study/body-verse">Explore Body Verse →</a><a class="button button-outline" href="/study/mind-map">Generate a mind map</a><a class="button button-outline" href="/study/flashcards">Smart flashcards</a><a class="button button-outline" href="/study/compare">Compare diseases</a><a class="button button-outline" href="/study/research-decoder">Research decoder</a></div></div><div class="study-illustration" aria-hidden="true"><span class="study-plant">✳</span><span class="study-book">✎</span><span class="study-underline"></span></div></section>'
         main = f'<section class="study-content study-home"><div><div class="section-heading"><div><span class="eyebrow">YOUR TOPICS</span><h2>Choose what to review</h2><p>Essentials from each health guide.</p></div></div><div class="study-grid">{lesson_cards}</div><div class="exam-panel"><span class="eyebrow">EXAM STARTERS</span><h2>Preparing for an exam?</h2><p>Ask the study buddy about NEET, MCAT, or AAMC. For current exam details and syllabi, check the official provider.</p>{exam_links}</div></div>{bot}</section>{notice("Study, not a substitute.", "Study buddy replies are for education, not personal diagnosis or treatment. For your own symptoms or care, consult a qualified health professional.")}'
         content = intro + main
     content += '<script src="/static/voice-tutor.js" defer></script>'

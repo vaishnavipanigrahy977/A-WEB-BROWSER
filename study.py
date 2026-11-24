@@ -452,7 +452,7 @@ def _ai_configuration():
             gemini_key,
             os.environ.get(
                 "GEMINI_MODEL",
-                os.environ.get("WELLNOTE_AI_MODEL", "gemini-2.5-flash"),
+                os.environ.get("WELLNOTE_AI_MODEL", "gemini-3.5-flash-lite"),
             ).strip(),
             "https://generativelanguage.googleapis.com/v1beta/openai",
         )
@@ -529,6 +529,12 @@ def generate_ai_response(prompt, language="en"):
             return (
                 "The AI provider rejected its credentials. Check the configured "
                 "API key and provider access, then try again."
+            )
+        if status == 404:
+            return (
+                "The AI provider could not find the configured model or endpoint "
+                "(HTTP 404). For Gemini, check GEMINI_MODEL and model access; "
+                "the default is gemini-3.5-flash-lite."
             )
         if status == 429:
             return "The AI provider is rate-limiting requests. Please wait a moment and try again."
