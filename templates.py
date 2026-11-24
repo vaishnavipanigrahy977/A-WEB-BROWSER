@@ -140,14 +140,15 @@ def home_page(diseases, query="", external_results=None, external_error=None, la
     return layout("Explore health topics", content, language=language, current_url=current_url)
 
 
-def video_preview(video, topic, error=None):
+def video_preview(video, topic, error=None, origin=""):
     if video:
         video_id = quote(video["video_id"], safe="")
+        embed_query = urlencode({"rel": "0", "origin": origin})
         return (
             '<section class="video-preview-card"><span class="eyebrow">WATCH &amp; LEARN</span>'
             '<h3>Animated explainer</h3><div class="video-frame">'
-            f'<iframe src="https://www.youtube-nocookie.com/embed/{video_id}?rel=0" '
-            f'title="{e(video["title"])}" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" '
+            f'<iframe src="https://www.youtube-nocookie.com/embed/{video_id}?{e(embed_query)}" '
+            f'title="{e(video["title"])}" loading="lazy" referrerpolicy="origin" '
             f'allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" '
             f'allowfullscreen></iframe></div><p class="video-attribution">'
             f'<a href="https://www.youtube.com/watch?v={video_id}" target="_blank" rel="noopener noreferrer">'
@@ -168,10 +169,10 @@ def video_preview(video, topic, error=None):
     )
 
 
-def external_topic_page(topic, results=None, error=None, language="en", current_url="/", saved_topics=(), video=None, video_error=None):
+def external_topic_page(topic, results=None, error=None, language="en", current_url="/", saved_topics=(), video=None, video_error=None, origin=""):
     """Render linked NLM references or a clear fallback without inventing facts."""
     references = reference_results(topic, results or [], error, saved_topics, language)
-    content = f"""<section class="simple-hero"><a class="back-link" href="/">← All topics</a><span class="eyebrow">EXTERNAL HEALTH REFERENCE</span><h1>{e(topic)}<span class="brand-period">.</span></h1><p>This condition is not in WellNote’s small, reviewed starter library.</p></section><div class="external-topic-layout"><div class="external-topic-content">{references}</div><aside class="study-sidebar">{video_preview(video, topic, video_error)}</aside></div>{notice('For education, not diagnosis.', 'Online references cannot assess your personal health. For symptoms or care, talk with a qualified health professional; for a possible emergency, contact local emergency services.')}"""
+    content = f"""<section class="simple-hero"><a class="back-link" href="/">← All topics</a><span class="eyebrow">EXTERNAL HEALTH REFERENCE</span><h1>{e(topic)}<span class="brand-period">.</span></h1><p>This condition is not in WellNote’s small, reviewed starter library.</p></section><div class="external-topic-layout"><div class="external-topic-content">{references}</div><aside class="study-sidebar">{video_preview(video, topic, video_error, origin)}</aside></div>{notice('For education, not diagnosis.', 'Online references cannot assess your personal health. For symptoms or care, talk with a qualified health professional; for a possible emergency, contact local emergency services.')}"""
     title = translations.translate_format(
         "Find information about {topic}", language, topic=topic
     )
@@ -220,7 +221,7 @@ def study_response_html(response):
     return "".join(rendered)
 
 
-def disease_page(disease, saved=False, language="en", current_url="/", video=None, video_error=None):
+def disease_page(disease, saved=False, language="en", current_url="/", video=None, video_error=None, origin=""):
     disease = translations.localize_disease(disease, language)
     bullets = lambda values: "".join(f"<li>{e(value)}</li>" for value in values)
     action = "remove" if saved else "add"
@@ -232,7 +233,7 @@ def disease_page(disease, saved=False, language="en", current_url="/", video=Non
             "title": disease["video_title"],
             "channel": disease["video_channel"],
         }
-    video_panel = video_preview(video, disease["name"], video_error)
+    video_panel = video_preview(video, disease["name"], video_error, origin)
     content = f"""<section class="detail-hero"><a class="back-link" href="/">← All topics</a><span class="eyebrow">{e(disease["category"])}</span><div class="detail-title-row"><div><h1>{e(disease["name"])}</h1><p class="detail-summary">{e(disease["summary"])}</p></div><form action="/saved/{action}/{quote(disease['slug'], safe='')}" method="post"><button class="button button-save">{save_label}</button></form></div></section><div class="detail-layout"><article class="detail-article"><section class="content-panel"><span class="eyebrow">THE OVERVIEW</span><h2>What it is</h2><p>{e(disease["description"])}</p></section><section class="content-panel"><div class="panel-heading"><span class="panel-icon icon-coral">✳</span><div><span class="eyebrow">WHAT TO LOOK FOR</span><h2>Common symptoms</h2></div></div><ul class="check-list">{bullets(disease["symptoms"])}</ul><p class="quiet-note">Symptoms can vary. This list cannot tell you what is causing your symptoms.</p></section><section class="content-panel"><div class="panel-heading"><span class="panel-icon icon-green">↗</span><div><span class="eyebrow">EVERYDAY WELLBEING</span><h2>Prevention &amp; risk reduction</h2></div></div><ul class="check-list">{bullets(disease["prevention"])}</ul></section><section class="content-panel treatment-panel"><div class="panel-heading"><span class="panel-icon icon-blue">✚</span><div><span class="eyebrow">CARE &amp; TREATMENT</span><h2>Can it be treated?</h2></div></div><p>{e(disease["treatment"])}</p><div class="care-callout"><span>♡</span><p>Care is personal. A licensed health professional can help you understand your options and what is right for you.</p></div></section><section class="source-panel"><span class="source-icon">↗</span><p>Learn more from <a href="{e(disease['source_url'])}" target="_blank" rel="noopener noreferrer">{e(disease["source_name"])} ↗</a></p></section></article><aside class="study-sidebar">{video_panel}<div class="sidebar-card"><span class="eyebrow">QUICK REVIEW</span><h3>Key takeaways</h3><ul>{points}</ul><a class="text-link" href="/study/{quote(disease['slug'], safe='')}">Study this topic →</a></div><div class="urgent-card"><span class="urgent-icon">!</span><p><strong>Need medical help?</strong><br>If you think you may have a medical emergency, contact your local emergency services now.</p></div></aside></div>{notice('Learning, not diagnosis.', 'This overview is general education and is not a substitute for a clinician’s assessment, diagnosis, or treatment advice.')}"""
     return layout(disease["name"], content, language=language, current_url=current_url)
 
