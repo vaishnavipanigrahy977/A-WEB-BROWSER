@@ -202,9 +202,18 @@ class MedicalAppTests(unittest.TestCase):
             results, error = openstax.search_openstax_books("medical")
         self.assertIsNone(error)
         self.assertEqual(len(results), 4)
-        self.assertEqual({item["field"] for item in results}, {"Biology", "Chemistry", "Physics"})
+        self.assertEqual(
+            {item["field"] for item in results},
+            {"Biology", "Chemistry", "Physics", "Others"},
+        )
         self.assertNotIn("Medical-Surgical Nursing", {item["title"] for item in results})
         self.assertTrue(all(item["url"].startswith("https://openstax.org/books/") for item in results))
+        anatomy = next(item for item in results if item["title"] == "Anatomy and Physiology 2e")
+        self.assertEqual(anatomy["field"], "Others")
+        self.assertEqual(
+            anatomy["subject_url"],
+            "https://openstax.org/subjects/science#Anatomy%20and%20Physiology",
+        )
 
         with patch("openstax.urlopen", return_value=BytesIO(payload)):
             chemistry, error = openstax.search_openstax_books("chemistry")
@@ -216,6 +225,11 @@ class MedicalAppTests(unittest.TestCase):
         self.assertIsNone(error)
         self.assertEqual(wrong_field, [])
 
+        with patch("openstax.urlopen", return_value=BytesIO(payload)):
+            anatomy_only, error = openstax.search_openstax_books("medical", "Others")
+        self.assertIsNone(error)
+        self.assertEqual([item["title"] for item in anatomy_only], ["Anatomy and Physiology 2e"])
+
     def test_openstax_search_page_shows_not_found_and_catalog_errors(self):
         catalog = {"books": [
             {"title": "Biology 2e", "slug": "books/biology-2e",
@@ -226,11 +240,18 @@ class MedicalAppTests(unittest.TestCase):
         self.assertIn("LIVE OPENSTAX CATALOG", found["body"])
         self.assertIn("Biology 2e", found["body"])
         self.assertIn('href="https://openstax.org/books/biology-2e"', found["body"])
+        self.assertIn('href="https://openstax.org/subjects/science#Biology"', found["body"])
+        self.assertIn('value="Others">Others · Anatomy and Physiology', found["body"])
 
         with patch("openstax.urlopen", return_value=BytesIO(json.dumps(catalog).encode())):
             absent = request("/study/textbooks/search", query="q=rare+anatomy+book")
         self.assertIn("No such content available.", absent["body"])
-        self.assertIn("medical-related Physics, Chemistry, and Biology", absent["body"])
+        self.assertIn(
+            "medical-related Physics, Chemistry, Biology, or Anatomy and Physiology",
+            absent["body"],
+        )
+        for source_url in openstax.FIELD_URLS.values():
+            self.assertIn(f'href="{source_url}"', found["body"])
 
         with patch("openstax.urlopen", side_effect=TimeoutError):
             unavailable = request("/study/textbooks/search", query="q=biology")

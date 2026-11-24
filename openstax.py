@@ -15,9 +15,16 @@ TIMEOUT_SECONDS = 5
 MAX_RESULTS = 60
 
 FIELD_CATEGORIES = {
-    "Biology": {"biology", "anatomy and physiology"},
-    "Chemistry": {"chemistry"},
     "Physics": {"physics"},
+    "Chemistry": {"chemistry"},
+    "Biology": {"biology"},
+    "Others": {"anatomy and physiology"},
+}
+FIELD_URLS = {
+    "Physics": "https://openstax.org/subjects/science#Physics",
+    "Chemistry": "https://openstax.org/subjects/science#Chemistry",
+    "Biology": "https://openstax.org/subjects/science#Biology",
+    "Others": "https://openstax.org/subjects/science#Anatomy%20and%20Physiology",
 }
 ALLOWED_FIELDS = tuple(FIELD_CATEGORIES)
 MEDICAL_INTENT_TERMS = {
@@ -43,8 +50,10 @@ def _record_field(book):
     if not isinstance(title, str):
         return None
     title = title.casefold()
-    if any(term in title for term in ("biology", "microbiology", "anatomy", "physiology")):
+    if any(term in title for term in ("biology", "microbiology")):
         return "Biology"
+    if "anatomy" in title or "physiology" in title:
+        return "Others"
     if "chemistry" in title:
         return "Chemistry"
     if "physics" in title:
@@ -80,6 +89,7 @@ def _catalog_records(payload):
             "title": title.strip(),
             "field": field,
             "url": urljoin(OPENSTAX_ROOT, slug),
+            "subject_url": FIELD_URLS[field],
             "slug": slug,
             "categories": book.get("subject_categories", []),
             "tags": book.get("promote_tags", []),
@@ -104,7 +114,7 @@ def _load_catalog():
 
 
 def search_openstax_books(term, field=""):
-    """Return matching live OpenStax book links in the three allowed fields."""
+    """Return matching live OpenStax book links in the allowed medical fields."""
     term = term.strip()[:120]
     if not term:
         return [], None
@@ -144,6 +154,7 @@ def search_openstax_books(term, field=""):
             "title": record["title"],
             "field": record["field"],
             "url": record["url"],
+            "subject_url": record["subject_url"],
         })
         if len(matches) >= MAX_RESULTS:
             break

@@ -7,6 +7,7 @@ from urllib.parse import quote, quote_plus, urlencode
 
 import translations
 import body_verse
+import openstax
 
 
 def e(value):
@@ -572,6 +573,24 @@ def textbook_chapter_link(book, chapter, label=None):
     )
 
 
+def openstax_subject_links():
+    labels = {
+        "Physics": "Physics",
+        "Chemistry": "Chemistry",
+        "Biology": "Biology",
+        "Others": "Others · Anatomy and Physiology",
+    }
+    return (
+        '<nav class="openstax-subject-links" aria-label="OpenStax subject catalogs">'
+        '<span>Official subject catalogs</span>'
+        + "".join(
+            f'<a href="{e(openstax.FIELD_URLS[field])}" target="_blank" rel="noopener noreferrer">{e(labels[field])} ↗</a>'
+            for field in openstax.ALLOWED_FIELDS
+        )
+        + "</nav>"
+    )
+
+
 def textbook_library_page(books, state, query="", subject="", level="", language="en", current_url="/"):
     subjects = sorted({book["subject"] for book in books})
     levels = sorted({book["level"] for book in books})
@@ -628,9 +647,11 @@ def textbook_library_page(books, state, query="", subject="", level="", language
         '<label for="openstax-query">Search all OpenStax book titles</label>'
         '<div><input id="openstax-query" type="search" name="q" placeholder="Try biology, chemistry, physics, or MCAT" required>'
         '<select name="field" aria-label="Limit results by field"><option value="">All allowed fields</option>'
-        '<option value="Biology">Biology</option><option value="Chemistry">Chemistry</option><option value="Physics">Physics</option></select>'
+        '<option value="Physics">Physics</option><option value="Chemistry">Chemistry</option>'
+        '<option value="Biology">Biology</option><option value="Others">Others · Anatomy and Physiology</option></select>'
         '<button class="button button-dark" type="submit">Search OpenStax</button></div>'
-        '<small>Searches the live catalog; only Physics, Chemistry, and Biology titles relevant to medical foundations are shown.</small></form>'
+        '<small>Searches the live catalog; results are limited to medical foundations in Physics, Chemistry, Biology, and Anatomy and Physiology.</small></form>'
+        f'{openstax_subject_links()}'
         '<form class="textbook-filters" action="/study/textbooks" method="get">'
         f'<label>Filter curated titles<input type="search" name="q" value="{e(query)}" placeholder="Try anatomy or infection"></label>'
         f'<label>Subject<select name="subject">{subject_options}</select></label>'
@@ -647,15 +668,22 @@ def textbook_library_page(books, state, query="", subject="", level="", language
 
 
 def openstax_search_page(query, field, results, error=None, language="en", current_url="/"):
+    field_labels = {
+        "Physics": "Physics",
+        "Chemistry": "Chemistry",
+        "Biology": "Biology",
+        "Others": "Others · Anatomy and Physiology",
+    }
     field_options = '<option value="">All allowed fields</option>' + "".join(
-        f'<option value="{name}"{" selected" if field == name else ""}>{name}</option>'
-        for name in ("Biology", "Chemistry", "Physics")
+        f'<option value="{name}"{" selected" if field == name else ""}>{e(field_labels[name])}</option>'
+        for name in openstax.ALLOWED_FIELDS
     )
     cards = "".join(
         f'<article class="openstax-result"><span class="eyebrow">{e(book["field"])} · MEDICAL FOUNDATION</span>'
         f'<h2><a href="{e(book["url"])}" target="_blank" rel="noopener noreferrer">{e(book["title"])}</a></h2>'
         f'<p>Official OpenStax listing · {e(book["field"])}</p>'
-        f'<a class="text-link" href="{e(book["url"])}" target="_blank" rel="noopener noreferrer">Open book at OpenStax ↗</a></article>'
+        f'<a class="text-link" href="{e(book["url"])}" target="_blank" rel="noopener noreferrer">Open book at OpenStax ↗</a>'
+        f'<a class="text-link openstax-subject-link" href="{e(book["subject_url"])}" target="_blank" rel="noopener noreferrer">Browse {e(field_labels[book["field"]])} ↗</a></article>'
         for book in results
     )
     if error:
@@ -666,7 +694,7 @@ def openstax_search_page(query, field, results, error=None, language="en", curre
     elif query and not results:
         result_content = (
             '<div class="openstax-empty"><strong>No such content available.</strong>'
-            '<p>No live OpenStax title matched that search within the medical-related Physics, Chemistry, and Biology fields.</p>'
+            '<p>No live OpenStax title matched that search within the medical-related Physics, Chemistry, Biology, or Anatomy and Physiology fields.</p>'
             '<a href="/study/textbooks">Browse the curated library</a></div>'
         )
     elif not query:
@@ -679,12 +707,13 @@ def openstax_search_page(query, field, results, error=None, language="en", curre
     content = (
         '<section class="simple-hero textbook-hero"><a class="back-link" href="/study/textbooks">← Textbook library</a>'
         '<span class="eyebrow">LIVE OPENSTAX CATALOG</span><h1>Search medical foundations<span class="brand-period">.</span></h1>'
-        '<p>Search book titles across the OpenStax catalog. WellNote displays only books classified under Biology, Chemistry, or Physics for medical and entrance-exam foundations.</p></section>'
+        '<p>Search book titles across the OpenStax catalog. WellNote displays only books classified under Physics, Chemistry, Biology, or Anatomy and Physiology for medical and entrance-exam foundations.</p></section>'
         '<form class="openstax-search-form" action="/study/textbooks/search" method="get">'
         f'<label for="openstax-query">Search all OpenStax book titles</label><div><input id="openstax-query" type="search" name="q" value="{e(query)}" placeholder="Try biology, chemistry, physics, or MCAT" required>'
         f'<select name="field" aria-label="Limit results by field">{field_options}</select>'
         '<button class="button button-dark" type="submit">Search OpenStax</button></div>'
-        '<small>Only live catalog entries in the three allowed subject fields are included. Full text remains on OpenStax.</small></form>'
+        '<small>Only live catalog entries in the allowed medical-foundation subject fields are included. Full text remains on OpenStax.</small></form>'
+        f'{openstax_subject_links()}'
         f'{result_content}'
         f'{notice("Catalog search, not a medical reference.", "Search results link to official OpenStax book pages. They are educational resources, not medical advice or a substitute for clinical training.")}'
     )
