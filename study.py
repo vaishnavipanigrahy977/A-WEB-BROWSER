@@ -337,6 +337,10 @@ AI_SYSTEM_PROMPT = (
     "services. Keep answers useful, respectful, and appropriately concise."
 )
 AI_TIMEOUT_SECONDS = 45
+GEMINI_TRANSIENT_FALLBACK_MODELS = (
+    "gemini-3.8-flash",
+    "gemini-3.1-flash-lite",
+)
 
 
 def ai_provider_configured():
@@ -499,25 +503,43 @@ def generate_ai_response(prompt, language="en"):
     system_prompt = AI_SYSTEM_PROMPT
     if language in language_instructions:
         system_prompt += " " + language_instructions[language]
-    payload = json.dumps({
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt},
-        ],
-    }).encode("utf-8")
-    request = Request(
-        _ai_endpoint(base_url),
-        data=payload,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        },
-        method="POST",
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": prompt},
+    ]
+    gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    uses_gemini_directly = (
+        bool(gemini_key)
+        and not os.environ.get("WELLNOTE_AI_API_KEY", "").strip()
+        and base_url.rstrip("/")
+        == "https://generativelanguage.googleapis.com/v1beta/openai"
     )
-    try:
-        for attempt in range(3):
+    models = [model]
+    if uses_gemini_directly:
+        models.extend(
+            candidate
+            for candidate in GEMINI_TRANSIENT_FALLBACK_MODELS
+            if candidate != model
+        )
+    data = None
+    last_transient_status = None
+    for model_index, candidate_model in enumerate(models):
+        payload = json.dumps({
+            "model": candidate_model,
+            "messages": messages,
+        }).encode("utf-8")
+        request = Request(
+            _ai_endpoint(base_url),
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            method="POST",
+        )
+        retry_count = 3 if model_index == 0 else 1
+        for attempt in range(retry_count):
             try:
                 with urlopen(request, timeout=AI_TIMEOUT_SECONDS) as response:
                     data = json.loads(response.read(2_000_000).decode("utf-8"))
@@ -525,10 +547,23 @@ def generate_ai_response(prompt, language="en"):
             except HTTPError as exc:
                 status = exc.code
                 exc.close()
-                if status in (408, 500, 502, 503, 504) and attempt < 2:
-                    base_delay = 2 ** attempt
-                    time.sleep(random.uniform(base_delay * 0.5, base_delay * 1.5))
-                    continue
+                if status in (408, 500, 502, 503, 504):
+                    last_transient_status = status
+                    if attempt < retry_count - 1:
+                        base_delay = 2 ** attempt
+                        time.sleep(random.uniform(base_delay * 0.5, base_delay * 1.5))
+                        continue
+                    if model_index < len(models) - 1:
+                        break
+                    retry_note = (
+                        "The app retried and tried an alternate Gemini model; "
+                        if uses_gemini_directly
+                        else "The app retried automatically; "
+                    )
+                    return (
+                        f"The AI provider is temporarily unavailable (HTTP {status}). "
+                        f"{retry_note}please wait a moment and try again."
+                    )
                 if status in (401, 403):
                     return (
                         "The AI provider rejected its credentials. Check the configured "
@@ -542,18 +577,24 @@ def generate_ai_response(prompt, language="en"):
                     )
                 if status == 429:
                     return "The AI provider is rate-limiting requests. Please wait a moment and try again."
-                if status in (408, 500, 502, 503, 504):
-                    return (
-                        f"The AI provider is temporarily unavailable (HTTP {status}). "
-                        "The app retried automatically; please wait a moment and try again."
-                    )
                 return f"The AI provider returned an HTTP {status} error. Please try again later."
+            except (URLError, TimeoutError, OSError):
+                return "The AI provider could not be reached. Check the connection and provider URL, then try again."
+            except (KeyError, IndexError, TypeError, ValueError, UnicodeDecodeError):
+                return "The AI provider returned an unreadable response. Please check the provider configuration and try again."
+        if data is not None:
+            break
+    if data is None and last_transient_status is not None:
+        return (
+            f"The AI provider is temporarily unavailable (HTTP {last_transient_status}). "
+            "The app retried and tried alternate Gemini models; "
+            "please wait a moment and try again."
+        )
+    try:
         answer = data["choices"][0]["message"]["content"]
         if not isinstance(answer, str) or not answer.strip():
             return "The AI provider returned an empty answer. Please try again."
         return answer.strip()
-    except (URLError, TimeoutError, OSError):
-        return "The AI provider could not be reached. Check the connection and provider URL, then try again."
     except (KeyError, IndexError, TypeError, ValueError, UnicodeDecodeError):
         return "The AI provider returned an unreadable response. Please check the provider configuration and try again."
 
