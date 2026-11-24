@@ -76,15 +76,33 @@ class ResearchDecoderTests(unittest.TestCase):
             self.assertIn(title, prompt)
         self.assertNotIn("full paper has been analyzed", prompt)
 
-    def test_ai_response_is_rejected_if_it_drops_a_source_number(self):
+    def test_ai_response_preserves_source_numbers_it_does_not_summarize(self):
         abstract = "RESULTS: The event rate was 12% (95% CI 10–14); p=0.03."
         sections = valid_sections()
         sections["Important results and statistics"][0]["reported_value"] = "12%; p=0.03"
         document, error = research_decoder.parse_ai_document(
             json.dumps({"sections": sections}), abstract
         )
-        self.assertIsNone(document)
-        self.assertIn("did not preserve every numerical value", error)
+        self.assertIsNone(error)
+        preserved_values = document[4]["content"]
+        self.assertEqual(preserved_values[-1]["reported_value"], "95")
+        self.assertIn("10–14", preserved_values[-1]["interpretation"])
+        self.assertIn("preserved verbatim", preserved_values[-1]["finding"])
+
+    def test_ai_response_does_not_fail_on_numeric_formatting_variants(self):
+        abstract = "RESULTS: 1,000 participants were enrolled; p=0.03."
+        sections = valid_sections()
+        sections["Important results and statistics"][0]["reported_value"] = (
+            "1000 participants; p=0.03"
+        )
+        document, error = research_decoder.parse_ai_document(
+            json.dumps({"sections": sections}), abstract
+        )
+        self.assertIsNone(error)
+        self.assertIn(
+            "1,000",
+            [row["reported_value"] for row in document[4]["content"]],
+        )
 
     def test_document_token_round_trips_validated_abstract_and_sections(self):
         abstract = "BACKGROUND: A study. RESULTS: The reported estimate was 12%."

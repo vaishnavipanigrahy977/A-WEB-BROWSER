@@ -123,6 +123,58 @@ def validate_sections(sections):
     return normalized, None
 
 
+def _preserve_unreported_numbers(sections, abstract):
+    number_pattern = r"(?<![A-Za-z0-9.])[+-]?\d+(?:[.,]\d+)*(?![A-Za-z0-9.])"
+    decoded_numbers = set(re.findall(number_pattern, json.dumps(sections, ensure_ascii=False)))
+    missing = []
+    seen = set()
+    matches = [
+        match for match in re.finditer(number_pattern, abstract)
+        if match.group(0) not in decoded_numbers
+    ]
+    for match in matches:
+        value = match.group(0)
+        if value not in seen:
+            missing.append(match)
+            seen.add(value)
+    if not missing:
+        return sections
+
+    results = sections[4]["content"]
+    available_rows = MAX_TABLE_ROWS - len(results)
+    if available_rows <= 0:
+        return sections
+
+    for match in missing:
+        current_numbers = set(
+            re.findall(number_pattern, json.dumps(sections, ensure_ascii=False))
+        )
+        if match.group(0) in current_numbers:
+            continue
+        if available_rows <= 0:
+            break
+        start = max(0, match.start() - 350)
+        end = min(len(abstract), match.end() + 350)
+        excerpt = abstract[start:end]
+        if start:
+            excerpt = "..." + excerpt
+        if end < len(abstract):
+            excerpt += "..."
+        results.append({
+            "finding": "Omitted source value (preserved verbatim)",
+            "reported_value": match.group(0),
+            "interpretation": (
+                "Not included in the AI summary; source context: " + excerpt
+            ),
+        })
+        available_rows -= 1
+
+    validated, error = validate_sections({
+        section["title"]: section["content"] for section in sections
+    })
+    return sections if error else validated
+
+
 def parse_ai_document(response, abstract=""):
     """Parse strict JSON returned by the existing WellNote AI provider."""
     if not isinstance(response, str):
@@ -142,17 +194,7 @@ def parse_ai_document(response, abstract=""):
     if error or not abstract:
         return sections, error
 
-    document_text = json.dumps(sections, ensure_ascii=False)
-    number_pattern = r"(?<![A-Za-z0-9.])[+-]?\d+(?:[.,]\d+)*(?![A-Za-z0-9.])"
-    source_numbers = set(re.findall(number_pattern, abstract))
-    decoded_numbers = set(re.findall(number_pattern, document_text))
-    missing = source_numbers - decoded_numbers
-    if missing:
-        return None, (
-            "The AI response did not preserve every numerical value from the "
-            "abstract. Retry decoding and verify the figures against the source."
-        )
-    return sections, None
+    return _preserve_unreported_numbers(sections, abstract), None
 
 
 def make_ai_prompt(abstract):

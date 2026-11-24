@@ -171,6 +171,22 @@ class MedicalAppTests(unittest.TestCase):
         self.assertNotIn("Safe text", result["body"])
         self.assertNotIn("Safe text <unsafe>", result["body"])
 
+    def test_research_decoder_keeps_download_available_when_ai_omits_a_number(self):
+        abstract = "RESULTS: 45 participants; response was 8.7% (95% CI 4.1–9.9)."
+        with patch(
+            "app.study.generate_ai_response",
+            return_value=json.dumps({"sections": research_ai_sections()}),
+        ):
+            result = request(
+                "/study/research-decoder",
+                method="POST",
+                form="action=decode&abstract=" + quote_plus(abstract) + "&use_ai=yes",
+            )
+
+        self.assertIn("Your decoded research is ready", result["body"])
+        self.assertIn("Download Decoded PDF", result["body"])
+        self.assertNotIn("did not preserve every numerical value", result["body"])
+
     def test_research_decoder_reports_missing_provider_and_keeps_original_text(self):
         abstract = "An abstract that should stay visible after provider failure."
         with patch("app.study.generate_ai_response", return_value=None):
