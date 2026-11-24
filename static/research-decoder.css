@@ -23,6 +23,7 @@
 .research-document-actions{display:flex;justify-content:flex-end;margin-top:16px}
 .research-download{margin:0}
 .research-download .button{white-space:nowrap}
+.research-download-status{margin:8px 0 0;color:var(--muted);font-size:12px}
 .research-document-section{padding:18px 20px}
 .research-document-section h3{display:flex;align-items:flex-start;gap:10px;margin:0 0 11px;color:#365d49;font:700 14px/1.5 "DM Sans",sans-serif}
 .research-document-section h3 span{flex:0 0 28px;color:#91a493;font:700 10px/1.8 "DM Sans",sans-serif;letter-spacing:.7px}

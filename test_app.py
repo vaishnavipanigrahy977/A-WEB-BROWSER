@@ -174,6 +174,7 @@ class MedicalAppTests(unittest.TestCase):
             "Potentially inferred concerns",
             "Ask Questions About This Research",
             "Download Decoded PDF",
+            "research-download-status",
             "Safe text &lt;unsafe&gt; &amp; details.",
         ):
             self.assertIn(expected, result["body"])
