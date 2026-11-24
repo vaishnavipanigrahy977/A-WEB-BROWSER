@@ -530,62 +530,13 @@ def research_decoder_page(
     def paragraph(text):
         return e(text).replace("\n", "<br>")
 
-    def render_table(headers, rows, fields, empty_message):
-        if not rows:
-            return f'<p class="research-empty-table">{e(empty_message)}</p>'
-        head = "".join(f"<th scope=\"col\">{e(label)}</th>" for label in headers)
-        body = "".join(
-            "<tr>" + "".join(
-                f"<td>{paragraph(row[field])}</td>" for field in fields
-            ) + "</tr>"
-            for row in rows
-        )
-        return f'<div class="research-table-wrap"><table class="research-data-table"><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
-
     paper_html = ""
     if paper:
         sections = sections or []
         token = ""
         download = ""
         chat_html = ""
-        section_cards = []
         if sections:
-            for index, section in enumerate(sections, 1):
-                title = section["title"]
-                data = section["content"]
-                if title == "Important results and statistics":
-                    body = render_table(
-                        ("Finding", "Reported value", "What it means"),
-                        data,
-                        research_decoder.RESULT_FIELDS,
-                        "No numerical results were reported in the abstract.",
-                    )
-                elif title == "Difficult terminology explained":
-                    body = render_table(
-                        ("Medical term", "Simple meaning", "Relevance to this study"),
-                        data,
-                        research_decoder.TERM_FIELDS,
-                        "No difficult medical terms were identified in the abstract.",
-                    )
-                elif title == "Conclusion":
-                    body = (
-                        f'<div class="research-conclusion-part"><h4>Authors’ conclusion</h4><p>{paragraph(data["authors_conclusion"])}</p></div>'
-                        f'<div class="research-conclusion-part"><h4>Simplified interpretation</h4><p>{paragraph(data["simplified_interpretation"])}</p></div>'
-                    )
-                elif title == "Limitations of the study":
-                    body = "".join(
-                        f'<div class="research-limit-part"><h4>{e(label)}</h4><p>{paragraph(data[key])}</p></div>'
-                        for label, key in (
-                            ("Stated by the authors", "stated_by_authors"),
-                            ("Potentially inferred concerns", "potentially_inferred"),
-                            ("Not reported in the abstract", "not_reported_in_abstract"),
-                        )
-                    )
-                else:
-                    body = f'<p>{paragraph(data)}</p>'
-                section_cards.append(
-                    f'<section class="research-document-section"><h3><span>{index:02d}</span>{e(title)}</h3>{body}</section>'
-                )
             try:
                 token = research_decoder.make_document_token(paper, sections)
                 download = (
@@ -625,11 +576,10 @@ def research_decoder_page(
         paper_html = (
             '<article class="research-paper"><header class="research-paper-header">'
             '<span class="eyebrow">YOUR ABSTRACT · EDUCATIONAL STUDY AID</span>'
-            f'<h2>{e(paper.get("title") or "Research abstract")}</h2>'
-            '<p class="research-citation">The pasted abstract is the only source analyzed. The full paper and citation have not been independently verified.</p>'
+            '<h2>Your decoded research is ready</h2>'
+            '<p class="research-citation">Download the study document or ask a question about this abstract.</p>'
             f'<div class="research-document-actions">{download}</div></header>'
             f'{decode_error_html}'
-            f'{"".join(section_cards)}'
             f'{chat_html}'
             '</article>'
         )

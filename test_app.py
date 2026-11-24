@@ -160,24 +160,15 @@ class MedicalAppTests(unittest.TestCase):
         model.assert_called_once()
         self.assertIn(abstract, model.call_args.args[0])
         for expected in (
-            "Research title",
-            "Background",
-            "Objective",
-            "Study design and methodology",
-            "Important results and statistics",
-            "Conclusion",
-            "Difficult terminology explained",
-            "Clinical significance",
-            "Limitations of the study",
-            "12%; p=0.04 (95% CI 1.1–2.4)",
-            "Authors’ conclusion",
-            "Potentially inferred concerns",
+            "Your decoded research is ready",
             "Ask Questions About This Research",
             "Download Decoded PDF",
             "research-download-status",
-            "Safe text &lt;unsafe&gt; &amp; details.",
+            "Your question",
         ):
             self.assertIn(expected, result["body"])
+        self.assertNotIn('class="research-document-section"', result["body"])
+        self.assertNotIn("Safe text", result["body"])
         self.assertNotIn("Safe text <unsafe>", result["body"])
 
     def test_research_decoder_reports_missing_provider_and_keeps_original_text(self):
