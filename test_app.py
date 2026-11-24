@@ -1513,9 +1513,12 @@ class MedicalAppTests(unittest.TestCase):
             {}, BytesIO(b"provider internals"),
         )
         with patch.dict(os.environ, config, clear=True):
-            with patch("study.urlopen", side_effect=server_error):
-                answer = generate_ai_response("A general prompt")
+            with patch("study.urlopen", side_effect=server_error) as provider:
+                with patch("study.time.sleep"):
+                    answer = generate_ai_response("A general prompt")
+        self.assertEqual(provider.call_count, 3)
         self.assertIn("HTTP 503", answer)
+        self.assertIn("retried automatically", answer)
         self.assertNotIn("provider internals", answer)
 
         missing_model = HTTPError(
@@ -1528,6 +1531,46 @@ class MedicalAppTests(unittest.TestCase):
         self.assertIn("GEMINI_MODEL", answer)
         self.assertIn("gemini-3.5-flash-lite", answer)
         self.assertNotIn("model details", answer)
+
+    def test_ai_provider_retries_transient_503_and_recovers(self):
+        response_body = json.dumps({
+            "choices": [{"message": {"content": "Recovered answer"}}]
+        }).encode()
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def read(self, _limit):
+                return response_body
+
+        attempts = 0
+
+        def fail_then_succeed(_request, timeout):
+            nonlocal attempts
+            attempts += 1
+            if attempts < 3:
+                raise HTTPError(
+                    "https://example.test/v1/chat/completions",
+                    503,
+                    "Unavailable",
+                    {},
+                    BytesIO(b"temporary provider failure"),
+                )
+            return FakeResponse()
+
+        config = {"WELLNOTE_AI_API_KEY": "private-key", "WELLNOTE_AI_MODEL": "model"}
+        with patch.dict(os.environ, config, clear=True):
+            with patch("study.urlopen", side_effect=fail_then_succeed):
+                with patch("study.time.sleep") as sleep:
+                    answer = generate_ai_response("A general prompt")
+
+        self.assertEqual(answer, "Recovered answer")
+        self.assertEqual(attempts, 3)
+        self.assertEqual(sleep.call_count, 2)
 
     def test_practice_question_checks_answer(self):
         body = request("/study/question")["body"]
