@@ -85,6 +85,17 @@ def saved_page_items(tokens):
     return items
 
 
+def request_origin(environ):
+    host = environ.get("HTTP_HOST", "localhost:8000").strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]*(?::[0-9]{1,5})?", host):
+        host = "localhost:8000"
+    forwarded_proto = environ.get("HTTP_X_FORWARDED_PROTO", "").split(",", 1)[0].strip().lower()
+    scheme = forwarded_proto if forwarded_proto in ("http", "https") else environ.get("wsgi.url_scheme", "http")
+    if scheme not in ("http", "https"):
+        scheme = "http"
+    return f"{scheme}://{host}"
+
+
 def preferred_language(environ):
     jar = cookies.SimpleCookie()
     try:
@@ -144,6 +155,7 @@ def application(environ, start_response):
     path = unquote(environ.get("PATH_INFO", "/"))
     query_string = environ.get("QUERY_STRING", "")
     current_url = path + (f"?{query_string}" if query_string else "")
+    origin = request_origin(environ)
     language = preferred_language(environ)
     saved = saved_tokens(environ)
 
@@ -470,6 +482,7 @@ def application(environ, start_response):
                 selected, selected["slug"] in saved,
                 language=language, current_url=current_url,
                 video=video, video_error=video_error,
+                origin=origin,
             ))
         topic = path.removeprefix("/disease/").replace("-", " ").strip()[:120]
         if topic:
@@ -479,6 +492,7 @@ def application(environ, start_response):
                 topic, results, error, language=language, current_url=current_url,
                 saved_topics=saved_topic_names(saved),
                 video=video, video_error=video_error,
+                origin=origin,
             ))
     status, body = templates.error_page(
         "Page not found", "The page may have moved or the topic is not in this starter library.",

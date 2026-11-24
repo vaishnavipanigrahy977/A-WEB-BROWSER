@@ -16,7 +16,7 @@ from study import EXAM_GUIDES, QUESTIONS, ai_provider_configured, generate_ai_re
 import translations
 
 
-def request(path="/", method="GET", query="", cookie="", form=""):
+def request(path="/", method="GET", query="", cookie="", form="", host="localhost:8000", forwarded_proto=""):
     result = {}
 
     def start_response(status, headers):
@@ -25,7 +25,9 @@ def request(path="/", method="GET", query="", cookie="", form=""):
 
     body = application({
         "REQUEST_METHOD": method, "PATH_INFO": path, "QUERY_STRING": query,
-        "HTTP_COOKIE": cookie, "CONTENT_LENGTH": str(len(form.encode())),
+        "HTTP_COOKIE": cookie, "HTTP_HOST": host,
+        "HTTP_X_FORWARDED_PROTO": forwarded_proto,
+        "CONTENT_LENGTH": str(len(form.encode())),
         "wsgi.input": BytesIO(form.encode()),
     }, start_response)
     result["body"] = b"".join(body).decode()
@@ -483,9 +485,31 @@ class MedicalAppTests(unittest.TestCase):
                          "does not currently have a cure", "nhlbi.nih.gov",
                          "not a substitute for a clinician",
                          "youtube-nocookie.com/embed/PzfLDi-sL3w",
+                         "origin=http%3A%2F%2Flocalhost%3A8000",
+                         'referrerpolicy="origin"',
                          "How does asthma work?",
                          "TED-Ed"):
             self.assertIn(expected, body)
+
+    def test_disease_video_uses_forwarded_railway_origin(self):
+        body = request(
+            "/disease/asthma",
+            host="a-web-browser-production.up.railway.app",
+            forwarded_proto="https",
+        )["body"]
+        self.assertIn(
+            "origin=https%3A%2F%2Fa-web-browser-production.up.railway.app",
+            body,
+        )
+
+    def test_video_origin_rejects_malformed_host(self):
+        body = request(
+            "/disease/asthma",
+            host='example.com" onclick="alert(1)',
+            forwarded_proto="https",
+        )["body"]
+        self.assertIn("origin=https%3A%2F%2Flocalhost%3A8000", body)
+        self.assertNotIn('example.com&quot;', body)
 
     def test_disease_video_previews_match_each_curated_topic(self):
         cases = (
