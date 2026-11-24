@@ -129,6 +129,7 @@ class MedicalAppTests(unittest.TestCase):
         script = request("/static/research-decoder.js")
         self.assertIn("words", script["body"])
         self.assertIn("followupSubmitted", script["body"])
+        self.assertIn('downloadForm.getAttribute("action")', script["body"])
 
     def test_research_decoder_requires_explicit_ai_consent_and_preserves_abstract(self):
         abstract = "METHODS: Forty participants were enrolled."

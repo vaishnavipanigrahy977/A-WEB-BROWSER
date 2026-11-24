@@ -65,7 +65,7 @@
       downloadStatus.hidden = false;
       downloadStatus.textContent = "Preparing your decoded research PDF...";
       try {
-        const response = await fetch(downloadForm.action, {
+        const response = await fetch(downloadForm.getAttribute("action"), {
           method: "POST",
           body: new URLSearchParams(new FormData(downloadForm)),
           headers: { Accept: "application/pdf" }
