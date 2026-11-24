@@ -216,7 +216,17 @@ class MedicalAppTests(unittest.TestCase):
         )
         self.assertTrue(downloaded["status"].startswith("200"))
         self.assertEqual(downloaded["headers"]["Content-Type"], "application/pdf")
-        self.assertIn("Wellnote_Research_Decoder_", downloaded["headers"]["Content-Disposition"])
+        self.assertTrue(
+            downloaded["headers"]["Content-Disposition"].startswith("attachment; filename=")
+        )
+        self.assertIn(
+            "Wellnote_Research_Decoder_",
+            downloaded["headers"]["Content-Disposition"],
+        )
+        self.assertEqual(
+            int(downloaded["headers"]["Content-Length"]),
+            len(downloaded["body_bytes"]),
+        )
         self.assertTrue(downloaded["body_bytes"].startswith(b"%PDF-1.4"))
         self.assertTrue(downloaded["body_bytes"].endswith(b"%%EOF\n"))
         downloaded_operation = request(
