@@ -144,7 +144,7 @@ function setImageDetails(name, system, summary) {
   detailName.textContent = name;
   detailSystem.textContent = system;
   detailFunction.textContent = summary;
-  detailFact.textContent = "Use the zoom controls or scroll to inspect this anatomical region more closely.";
+  detailFact.textContent = "Scroll to inspect this anatomical region more closely.";
   for (const hotspot of imageViewport?.querySelectorAll(".anatomy-hotspot") || []) {
     hotspot.classList.toggle("selected", hotspot.dataset.name === name);
   }
@@ -619,7 +619,7 @@ function loadSketchfabSection(systemId) {
   detailName.textContent = system.label;
   detailSystem.textContent = "ANATOMY EXPLORER";
   detailFunction.textContent = system.description;
-  detailFact.textContent = "Use the model controls to rotate and zoom. Select a listed structure or an available model region to view details.";
+  detailFact.textContent = "Drag to rotate or scroll to zoom. Select a listed structure or an available model region to view details.";
   if (detailLink) detailLink.hidden = true;
   if (stageBadge) stageBadge.textContent = "Interactive Sketchfab 3D";
   if (stageInstruction) stageInstruction.innerHTML = "Drag to rotate<small>Scroll or pinch to zoom</small>";
@@ -705,32 +705,6 @@ moreButton.addEventListener("click", () => {
   visibleCount += pageSize;
   renderList();
 });
-
-for (const button of document.querySelectorAll("[data-camera]")) {
-  button.addEventListener("click", () => {
-    if (imageMode) {
-      if (button.dataset.camera === "reset") {
-        imageScale = 1;
-        imagePan = { x: 0, y: 0 };
-      } else {
-        imageScale = Math.max(1, Math.min(3.5,
-          imageScale + (button.dataset.camera === "zoom-in" ? 0.25 : -0.25),
-        ));
-      }
-      applyImageTransform();
-      return;
-    }
-    if (button.dataset.camera === "reset" && activeModel) {
-      fitModel(activeModel);
-      return;
-    }
-    const factor = button.dataset.camera === "zoom-in" ? 0.8 : 1.25;
-    camera.position.copy(controls.target).add(
-      camera.position.clone().sub(controls.target).multiplyScalar(factor),
-    );
-    controls.update();
-  });
-}
 
 canvas.addEventListener("pointerdown", (event) => {
   pointerStart = { x: event.clientX, y: event.clientY };
